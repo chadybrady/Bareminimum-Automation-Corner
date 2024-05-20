@@ -1,0 +1,1 @@
+# Bareminimum Automation corner
