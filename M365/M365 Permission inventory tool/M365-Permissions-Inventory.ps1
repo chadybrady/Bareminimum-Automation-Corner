@@ -52,12 +52,31 @@ function Prompt-YesNo {
   return $answer.Trim().ToUpper() -eq "Y"
 }
 
+Clear-Host
 Write-Host ""
-Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "   M365 Permissions Inventory - v2.0"          -ForegroundColor Cyan
-Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "Auditing all Microsoft 365 services."            -ForegroundColor Yellow
-Write-Host "Select which sections to include:"              -ForegroundColor Yellow
+Write-Host "  ╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "  ║                                                              ║" -ForegroundColor Cyan
+Write-Host "  ║        M365 Permissions Inventory  ·  v2.0                  ║" -ForegroundColor Cyan
+Write-Host "  ║        Bareminimum Automation                                ║" -ForegroundColor DarkCyan
+Write-Host "  ║                                                              ║" -ForegroundColor Cyan
+Write-Host "  ╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  This tool produces a read-only permissions inventory across"    -ForegroundColor White
+Write-Host "  your Microsoft 365 tenant and exports results to CSV/Excel."    -ForegroundColor White
+Write-Host ""
+Write-Host "  Coverage:"                                                       -ForegroundColor Gray
+Write-Host "    · Entra directory roles & PIM eligible assignments"            -ForegroundColor Gray
+Write-Host "    · Enterprise apps, OAuth2 consent grants"                      -ForegroundColor Gray
+Write-Host "    · Teams, SharePoint & OneDrive site permissions"               -ForegroundColor Gray
+Write-Host "    · Exchange mailboxes, distribution groups"                     -ForegroundColor Gray
+Write-Host "    · Conditional Access policy assignments"                       -ForegroundColor Gray
+Write-Host ""
+Write-Host "  Requirements: Microsoft.Graph SDK  |  PowerShell 7+"            -ForegroundColor DarkGray
+Write-Host "  Optional    : ExchangeOnlineManagement, ImportExcel"             -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  ──────────────────────────────────────────────────────────────" -ForegroundColor DarkCyan
+Write-Host "  Select which sections to include below."                         -ForegroundColor Yellow
+Write-Host "  Press Enter to accept the default [Y] for each section."        -ForegroundColor DarkGray
 Write-Host ""
 
 $IncludeDirectoryRoles  = Prompt-YesNo "  [1] Entra Directory Role Assignments?"
@@ -70,7 +89,7 @@ $IncludeOneDriveSites = $false
 if ($IncludeSharePointSites) {
   $IncludeOneDriveSites = Prompt-YesNo "       Include OneDrive sites as well?"
 } else {
-  $IncludeOneDriveSites = Prompt-YesNo "  [5b] OneDrive Site Permissions (utan SharePoint)?"
+  $IncludeOneDriveSites = Prompt-YesNo "  [5b] OneDrive Site Permissions (without SharePoint)?"
 }
 
 $IncludeExchange     = Prompt-YesNo "  [6] Exchange Mailbox Permissions (FullAccess, SendAs, SendOnBehalf)?"
