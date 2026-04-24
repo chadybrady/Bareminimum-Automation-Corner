@@ -10,6 +10,7 @@ PowerShell scripts for managing **Microsoft 365** workloads including Viva/Copil
 |---|---|
 | [`Copilot and Viva/`](./Copilot%20and%20Viva/) | Disable or configure Microsoft Viva and Copilot features across the tenant |
 | [`M365 Permission inventory tool/`](./M365%20Permission%20inventory%20tool/) | Tenant-wide, read-only permissions inventory across Entra roles, enterprise apps, OAuth2 grants, Teams, SharePoint/OneDrive, Exchange, distribution groups, Conditional Access, and PIM |
+| [`M365- Configuration drift management tool/`](./M365-%20Configuration%20drift%20management%20tool/) | Snapshot, baseline, and drift-detection tool covering Entra ID (CA, roles, apps, auth methods) and Intune (device config, compliance, scripts, app assignments, and more) |
 | [`Onedrive/`](./Onedrive/) | OneDrive for Business maintenance scripts: KFM cleanup, folder remediation, and locked site unlocking |
 
 ---
