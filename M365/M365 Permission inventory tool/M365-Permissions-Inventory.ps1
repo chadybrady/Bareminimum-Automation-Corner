@@ -13,7 +13,7 @@
   - Exchange mailbox permissions (FullAccess, SendAs, SendOnBehalf)
   - Distribution groups & mail-enabled security groups (members, sync status)
   - Conditional Access policy assignments (included/excluded users/groups)
-  - PIM eligible role assignments (not yet activated)
+  - PIM role assignments (eligible/not-yet-activated and active/permanent/activated)
 
 .NOTES
   - SharePoint item-level permissions (files/folders) NOT enumerated.
@@ -65,7 +65,7 @@ Write-Host "  This tool produces a read-only permissions inventory across"    -F
 Write-Host "  your Microsoft 365 tenant and exports results to CSV/Excel."    -ForegroundColor White
 Write-Host ""
 Write-Host "  Coverage:"                                                       -ForegroundColor Gray
-Write-Host "    · Entra directory roles & PIM eligible assignments"            -ForegroundColor Gray
+Write-Host "    · Entra directory roles & PIM assignments (eligible + active)"            -ForegroundColor Gray
 Write-Host "    · Enterprise apps, OAuth2 consent grants"                      -ForegroundColor Gray
 Write-Host "    · Teams, SharePoint & OneDrive site permissions"               -ForegroundColor Gray
 Write-Host "    · Exchange mailboxes, distribution groups"                     -ForegroundColor Gray
@@ -95,7 +95,7 @@ if ($IncludeSharePointSites) {
 $IncludeExchange     = Prompt-YesNo "  [6] Exchange Mailbox Permissions (FullAccess, SendAs, SendOnBehalf)?"
 $IncludeDistGroups   = Prompt-YesNo "  [7] Distribution Groups & Mail-enabled Security Groups (members, sync status)?"
 $IncludeCondAccess   = Prompt-YesNo "  [8] Conditional Access Policy Assignments (users/groups in policies)?"
-$IncludePIMEligible  = Prompt-YesNo "  [9] PIM Eligible Role Assignments (not yet activated)?"
+$IncludePIMEligible  = Prompt-YesNo "  [9] PIM Role Assignments (eligible + active/permanent/activated)?"
 Write-Host ""
 
 # Detect platform and available AD tools
@@ -115,6 +115,39 @@ if ($ADMethod -eq "rsat") {
   $IncludeADCrosscheck = $false
 }
 
+# App-only / client credentials auth
+$UseAppOnlyAuth      = $false
+$AppOnlyTenantId     = ""
+$AppOnlyClientId     = ""
+$AppOnlyClientSecret = $null
+
+$needsSharePoint = $IncludeSharePointSites -or $IncludeOneDriveSites
+Write-Host ""
+if ($needsSharePoint) {
+  Write-Host "  NOTE: SharePoint/OneDrive enumeration requires app-only authentication."    -ForegroundColor Yellow
+  Write-Host "        Delegated auth (even Global Admin) returns 403 on /beta/sites/getAllSites." -ForegroundColor DarkGray
+  Write-Host ""
+}
+$UseAppOnlyAuth = Prompt-YesNo "  [Auth] Use app-only authentication (client credentials)?" `
+  -Default $(if ($needsSharePoint) { "Y" } else { "N" })
+
+if ($UseAppOnlyAuth) {
+  Write-Host ""
+  Write-Host "  App-only requires an Entra App Registration with Application permissions"  -ForegroundColor DarkGray
+  Write-Host "  (not Delegated) and admin consent granted for:"                            -ForegroundColor DarkGray
+  Write-Host "    Directory.Read.All, RoleManagement.Read.Directory"                       -ForegroundColor DarkGray
+  Write-Host "    Application.Read.All, TeamMember.Read.All, Sites.Manage.All, Mail.Read"    -ForegroundColor DarkGray
+  if ($IncludeCondAccess)  { Write-Host "    Policy.Read.All                          (Conditional Access selected)" -ForegroundColor DarkGray }
+  if ($IncludePIMEligible) { Write-Host "    RoleEligibilitySchedule.Read.Directory   (PIM selected)"               -ForegroundColor DarkGray }
+  Write-Host ""
+  $AppOnlyTenantId     = Read-Host "  Tenant ID  (e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
+  $AppOnlyClientId     = Read-Host "  Client ID  (App Registration Application ID)"
+  Write-Host "  ⚠ Enter the secret VALUE (the long string), NOT the secret ID (the GUID)" -ForegroundColor DarkYellow
+  $secretPlain         = Read-Host "  Client Secret value (paste supported, shown briefly)"
+  $AppOnlyClientSecret = ConvertTo-SecureString $secretPlain -AsPlainText -Force
+  $secretPlain         = $null
+}
+
 Write-Host ""
 Write-Host "Selected sections:" -ForegroundColor Cyan
 Write-Host "  Directory Roles  : $IncludeDirectoryRoles"
@@ -128,6 +161,7 @@ Write-Host "  Dist Groups      : $IncludeDistGroups"
 Write-Host "  Cond. Access     : $IncludeCondAccess"
 Write-Host "  PIM Eligible     : $IncludePIMEligible"
 Write-Host "  AD Crosscheck    : $IncludeADCrosscheck"
+Write-Host "  Auth Mode        : $(if ($UseAppOnlyAuth) { 'App-only (client credentials)' } else { 'Delegated (interactive)' })"
 Write-Host ""
 
 $confirm = Prompt-YesNo "Start inventory with these settings?" -Default "Y"
@@ -345,24 +379,44 @@ if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
 }
 Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
 
-$graphScopes = @(
-  "Directory.Read.All",
-  "RoleManagement.Read.Directory",
-  "Application.Read.All",
-  "Team.ReadBasic.All",
-  "TeamMember.Read.All",
-  "Sites.Read.All",
-  "Mail.Read"
-)
-
-if ($IncludeCondAccess) {
-  $graphScopes += "Policy.Read.All"
+if ($UseAppOnlyAuth) {
+  if (-not $AppOnlyTenantId -or -not $AppOnlyClientId -or -not $AppOnlyClientSecret) {
+    throw "App-only auth selected but TenantId, ClientId or ClientSecret is missing."
+  }
+  $credential = New-Object System.Management.Automation.PSCredential(
+    $AppOnlyClientId, $AppOnlyClientSecret
+  )
+  try {
+    Connect-MgGraph -TenantId $AppOnlyTenantId -ClientSecretCredential $credential -NoWelcome
+  }
+  catch {
+    $inner = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+    Write-Host ""
+    Write-Host "✗ App-only authentication failed." -ForegroundColor Red
+    Write-Host "  Reason : $inner" -ForegroundColor Red
+    Write-Host "" -ForegroundColor Red
+    Write-Host "  Common causes:" -ForegroundColor DarkYellow
+    Write-Host "    · Secret VALUE entered instead of secret ID (AADSTS7000215)" -ForegroundColor DarkYellow
+    Write-Host "    · Wrong TenantId, ClientId, or ClientSecret" -ForegroundColor DarkYellow
+    Write-Host "    · Client secret has expired" -ForegroundColor DarkYellow
+    Write-Host "    · Application permissions not granted admin consent" -ForegroundColor DarkYellow
+    Write-Host "    · App registration does not exist in this tenant" -ForegroundColor DarkYellow
+    throw
+  }
+} else {
+  $graphScopes = @(
+    "Directory.Read.All",
+    "RoleManagement.Read.Directory",
+    "Application.Read.All",
+    "Team.ReadBasic.All",
+    "TeamMember.Read.All",
+    "Sites.Manage.All",
+    "Mail.Read"
+  )
+  if ($IncludeCondAccess)  { $graphScopes += "Policy.Read.All" }
+  if ($IncludePIMEligible) { $graphScopes += "RoleEligibilitySchedule.Read.Directory" }
+  Connect-MgGraph -Scopes $graphScopes -NoWelcome
 }
-if ($IncludePIMEligible) {
-  $graphScopes += "RoleEligibilitySchedule.Read.Directory"
-}
-
-Connect-MgGraph -Scopes $graphScopes -NoWelcome
 Write-Host "Connected to Microsoft Graph." -ForegroundColor Green
 
 $headers = @{ "ConsistencyLevel" = "eventual" }
@@ -377,9 +431,13 @@ if ($IncludeExchange) {
            "Run: Install-Module ExchangeOnlineManagement -Scope CurrentUser")
   }
 
-  Import-Module ExchangeOnlineManagement -ErrorAction Stop
+  # Disable MSAL WAM/broker BEFORE import — MSAL reads this at class-init time.
+  # On Windows Server the RuntimeBroker constructor crashes with NullReferenceException
+  # on a background thread (uncatchable) when there is no interactive window handle.
+  $env:MSAL_DISABLE_WAM    = "1"
+  $env:MSAL_DISABLE_BROKER = "1"
 
-  $env:MSAL_DISABLE_WAM = "1"
+  Import-Module ExchangeOnlineManagement -ErrorAction Stop
 
   # Cross-platform temp directory for EXO module
   $exoTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "M365PermInv"
@@ -387,9 +445,14 @@ if ($IncludeExchange) {
   $env:TEMP = $exoTmpDir
   $env:TMP  = $exoTmpDir
 
-  try {
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-  } catch {}
+  # On Windows, skip the pre-disconnect: Disconnect-ExchangeOnline calls ClearAllTokensAsync()
+  # which initialises the WAM broker on a background thread — the resulting NullReferenceException
+  # is unhandled and kills the process. Only disconnect when not on Windows.
+  if (-not $IsWindows) {
+    try {
+      Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+  }
 
   $exoCmds = @(
     'Get-EXOMailbox',
@@ -400,12 +463,11 @@ if ($IncludeExchange) {
 
   Write-Host "Connecting to Exchange Online..." -ForegroundColor Cyan
 
-  # The MSAL broker/WAM path (used by -Device / -UseDeviceAuthentication in some module versions)
-  # throws "Method not found: BrokerExtension.WithBroker()" when there is a MSAL DLL version
-  # mismatch in the session. Work around it by trying auth flows in a safe order:
-  #   1) Modern interactive browser login (no broker)
-  #   2) Device-code flow (explicit, avoids WAM broker on older builds)
-  #   3) Plain interactive (let the module decide, last resort)
+  # Auth flow selection:
+  #   On Windows: skip Flow 1 (-UseWebLogin) — it uses the WAM broker which crashes
+  #               on Windows Server with no window handle (NullReferenceException on
+  #               background thread, uncatchable). Go straight to device code.
+  #   On macOS/Linux: try web login first, then device code, then plain interactive.
 
   $ceoCmd    = Get-Command Connect-ExchangeOnline -ErrorAction SilentlyContinue
   $paramKeys = if ($ceoCmd -and $ceoCmd.Parameters) { $ceoCmd.Parameters.Keys } else { @() }
@@ -420,8 +482,8 @@ if ($IncludeExchange) {
   $connected = $false
   $lastErr   = $null
 
-  # --- Flow 1: explicit web-browser login (avoids all broker/WAM code) ---
-  if (-not $connected -and $paramKeys -contains 'UseWebLogin') {
+  # --- Flow 1: explicit web-browser login — skipped on Windows (WAM broker crash risk) ---
+  if (-not $connected -and -not $IsWindows -and $paramKeys -contains 'UseWebLogin') {
     try {
       Connect-ExchangeOnline @baseParams -UseWebLogin | Out-Null
       $connected = $true
@@ -582,6 +644,13 @@ function Get-PrincipalInfo {
       }
     }
     catch {
+      # 404 / ResourceNotFound means the object is deleted — no point trying other types
+      if ($_ -match 'ResourceNotFound|does not exist|404') {
+        $info.PrincipalType  = "DeletedObject"
+        $info.DisplayName    = "(deleted)"
+        $PrincipalCache[$Id] = $info
+        return $info
+      }
       Write-Verbose "Principal lookup ($t) failed for $Id : $_"
     }
   }
@@ -658,6 +727,11 @@ function Enrich-PrincipalCacheFromAD {
     }
   }
 
+  $adAttemptCount       = 0
+  $adFailCount          = 0
+  $consecutiveFailCount = 0
+  $throttleWarningShown = $false
+
   foreach ($id in @($PrincipalCache.Keys)) {
     $p = $PrincipalCache[$id]
 
@@ -665,6 +739,7 @@ function Enrich-PrincipalCacheFromAD {
     if ($p.Origin -ne "ADSync")                    { continue }
     if ($p.OnPremisesDN -and $p.OnPremisesOU)      { continue }
 
+    $adAttemptCount++
     try {
       $dn = $null
 
@@ -718,11 +793,25 @@ function Enrich-PrincipalCacheFromAD {
         $p.OnPremisesOU  = Get-OuFromDn -DistinguishedName $dn
         $PrincipalCache[$id] = $p
       }
+      $consecutiveFailCount = 0
     }
     catch {
+      $adFailCount++
+      $consecutiveFailCount++
       Write-Warning ("AD lookup failed for '{0}' ({1}): {2}" -f
         $p.DisplayName, $p.PrincipalType, $_.Exception.Message)
+      if ($consecutiveFailCount -ge 3 -and -not $throttleWarningShown) {
+        $throttleWarningShown = $true
+        Write-Warning ("AD enrichment: $consecutiveFailCount consecutive lookup failures detected — " +
+          "the domain controller may be throttling or rate-limiting requests. " +
+          "Remaining principals may not be enriched. " +
+          "Consider re-running with only AD enrichment enabled.")
+      }
     }
+  }
+
+  if ($adFailCount -gt 0) {
+    Write-Warning ("AD enrichment summary: $adFailCount of $adAttemptCount principal lookups failed.")
   }
 }
 
@@ -984,7 +1073,10 @@ if ($IncludeSharePointSites -or $IncludeOneDriveSites) {
     }
   }
 
-  $siteCount = 0
+  $siteCount        = 0
+  $sp403Count       = 0   # per-site 403 on SharePoint sites
+  $od403Count       = 0   # per-site 403 on OneDrive sites
+  $lockedSiteCount  = 0   # per-site 423 (admin-blocked) skips
   foreach ($s in $sites) {
     $webUrl     = Get-GraphPropValue -Obj $s -Name "webUrl"
     $siteName   = Get-GraphPropValue -Obj $s -Name "displayName"
@@ -994,7 +1086,7 @@ if ($IncludeSharePointSites -or $IncludeOneDriveSites) {
       $isOneDrive = $true
     }
 
-    if ($isOneDrive -and -not $IncludeOneDriveSites)   { continue }
+    if ($isOneDrive -and -not $IncludeOneDriveSites)     { continue }
     if (-not $isOneDrive -and -not $IncludeSharePointSites) { continue }
 
     $siteCount++
@@ -1011,18 +1103,33 @@ if ($IncludeSharePointSites -or $IncludeOneDriveSites) {
         $roles = Get-GraphPropValue -Obj $p0 -Name "roles"
         if (-not $roles) { $roles = @("") }
 
-        # Try grantedToIdentitiesV2 first (modern), fall back to grantedToV2
+        # Try grantedToIdentitiesV2 first (modern), fall back to grantedToV2,
+        # then fall back to legacy non-V2 fields for older permission entries
         $identities = Get-GraphPropValue -Obj $p0 -Name "grantedToIdentitiesV2"
         if (-not $identities) {
           # grantedToV2 is a single object, not an array - wrap it
           $grantedToV2 = Get-GraphPropValue -Obj $p0 -Name "grantedToV2"
           if ($grantedToV2) { $identities = @($grantedToV2) }
         }
+        # Legacy fallback: some entries (e.g. unlicensed/SharePoint-only users) use old format
+        if (-not $identities) {
+          $legacyIdentities = Get-GraphPropValue -Obj $p0 -Name "grantedToIdentities"
+          if ($legacyIdentities) { $identities = $legacyIdentities }
+        }
+        if (-not $identities) {
+          $legacyGrantedTo = Get-GraphPropValue -Obj $p0 -Name "grantedTo"
+          if ($legacyGrantedTo) { $identities = @($legacyGrantedTo) }
+        }
 
         if ($identities) {
           foreach ($g0 in $identities) {
             $u  = Get-GraphPropValue -Obj $g0 -Name "user"
             $gr = Get-GraphPropValue -Obj $g0 -Name "group"
+            # siteUser/siteGroup are SharePoint-specific identities used for unlicensed
+            # accounts and external/guest users that aren't full Entra ID members
+            $su = Get-GraphPropValue -Obj $g0 -Name "siteUser"
+            $sg = Get-GraphPropValue -Obj $g0 -Name "siteGroup"
+            $ap = Get-GraphPropValue -Obj $g0 -Name "application"
 
             if ($u -and (Get-GraphPropValue $u "id")) {
               $pi = Get-PrincipalInfo -Id (Get-GraphPropValue $u "id") -HintType "user"
@@ -1055,18 +1162,39 @@ if ($IncludeSharePointSites -or $IncludeOneDriveSites) {
               }
             }
             else {
-              # Special principals (e.g. Everyone except external users) - no resolvable id
+              # No Entra ID user/group with a GUID — check SharePoint-specific fields
+              # (siteUser/siteGroup = unlicensed/external/SharePoint-only accounts)
               $specialName = ""
-              if ($u)  { $specialName = Coalesce -Value (Get-GraphPropValue $u  "displayName") -Fallback "" }
-              if (-not $specialName -and $gr) {
-                        $specialName = Coalesce -Value (Get-GraphPropValue $gr "displayName") -Fallback "" }
+              $specialUpn  = ""
+              $specialType = "Special"
+
+              if ($su) {
+                $specialType = "SPUser"
+                $specialName = Coalesce -Value (Get-GraphPropValue $su "displayName") -Fallback ""
+                # loginName format: "i:0#.f|membership|user@domain.com" — extract UPN
+                $ln = Get-GraphPropValue $su "loginName"
+                if ($ln -and $ln -match '\|(.+@.+)$') { $specialUpn = $Matches[1] }
+                if (-not $specialName) { $specialName = $specialUpn }
+                if (-not $specialName) { $specialName = $ln }
+              }
+              elseif ($sg) {
+                $specialType = "SPGroup"
+                $specialName = Coalesce -Value (Get-GraphPropValue $sg "displayName") -Fallback ""
+              }
+              elseif ($ap) {
+                $specialType = "Application"
+                $specialName = Coalesce -Value (Get-GraphPropValue $ap "displayName") -Fallback ""
+              }
+              # Legacy fields (non-V2 format)
+              if (-not $specialName -and $u)  { $specialName = Coalesce -Value (Get-GraphPropValue $u  "displayName") -Fallback "" }
+              if (-not $specialName -and $gr) { $specialName = Coalesce -Value (Get-GraphPropValue $gr "displayName") -Fallback "" }
               if (-not $specialName) { $specialName = "UnresolvedPrincipal" }
 
               $pi = @{
-                PrincipalType                = "Special"
+                PrincipalType                = $specialType
                 PrincipalId                  = ""
                 DisplayName                  = $specialName
-                UPN                          = ""
+                UPN                          = $specialUpn
                 Origin                       = "N/A"
                 OnPremisesDN                 = ""
                 OnPremisesOU                 = ""
@@ -1089,10 +1217,74 @@ if ($IncludeSharePointSites -or $IncludeOneDriveSites) {
           }
         }
       }
+      # For personal OneDrive sites, /sites/{id}/permissions only returns explicit sharing
+      # grants — not the implicit site owner. Fetch the drive owner and add a SiteOwner row.
+      if ($isOneDrive) {
+        try {
+          $driveResp  = Invoke-MgGraphRequest -Method GET `
+            -Uri ("/v1.0/sites/{0}/drive?`$select=owner" -f $s.id)
+          $driveOwner = Get-GraphPropValue $driveResp "owner"
+          $ownerUser  = if ($driveOwner) { Get-GraphPropValue $driveOwner "user" } else { $null }
+          $ownerId    = if ($ownerUser)  { Get-GraphPropValue $ownerUser  "id"   } else { $null }
+          if ($ownerId) {
+            $pi = Get-PrincipalInfo -Id $ownerId -HintType "user"
+            [void]$rows.Add((New-AssignmentRow `
+              -Service          "SharePoint" `
+              -ResourceType     "OneDrive" `
+              -ResourceId       $s.id `
+              -ResourceName     $siteName `
+              -AssignmentType   "SiteOwner" `
+              -RoleOrPermission "owner" `
+              -PrincipalInfo    $pi `
+              -Details          $webUrl
+            ))
+          }
+        }
+        catch {
+          Write-Verbose "Could not retrieve drive owner for '$siteName' ($webUrl): $_"
+        }
+      }
     }
     catch {
-      Write-Warning "Could not retrieve permissions for site '$siteName' ($webUrl): $_"
+      $sc = $null
+      try { $sc = $_.Exception.Response.StatusCode.value__ } catch {}
+      if ($sc -eq 403) {
+        if ($isOneDrive) { $od403Count++ } else { $sp403Count++ }
+      } elseif ($sc -eq 423 -or $_ -match 'resourceLocked') {
+        $lockedSiteCount++   # site is admin-locked — skip silently, summarise after loop
+      } else {
+        Write-Warning "Could not retrieve permissions for site '$siteName' ($webUrl): $_"
+      }
     }
+  }
+  # Post-loop 403 summary — distinguish between "a few classic/archived sites" (normal)
+  # and "everything failed" which indicates a missing permission
+  $permMissingMsg = @"
+
+  The app registration may be missing 'Sites.Manage.All' (Application permission).
+  Steps to fix in the Azure portal:
+    1. App registrations -> your app -> API permissions
+    2. Add: Microsoft Graph -> Application permissions -> Sites.Manage.All
+    3. Click 'Grant admin consent'
+"@
+  if ($sp403Count -gt 0) {
+    $spTotal = @($sites | Where-Object { (Get-GraphPropValue $_ 'webUrl') -notmatch '-my\.sharepoint\.com/personal/' }).Count
+    if ($sp403Count -ge [Math]::Max(5, [int]($spTotal * 0.5))) {
+      Write-Warning ("SharePoint: $sp403Count of $spTotal sites returned 403 (access denied)." + $permMissingMsg)
+    } else {
+      Write-Host "  · $sp403Count SharePoint site(s) skipped (HTTP 403 — classic/archived sites, expected)." -ForegroundColor DarkYellow
+    }
+  }
+  if ($od403Count -gt 0) {
+    $odTotal = @($sites | Where-Object { (Get-GraphPropValue $_ 'webUrl') -match '-my\.sharepoint\.com/personal/' }).Count
+    if ($od403Count -ge [Math]::Max(5, [int]($odTotal * 0.5))) {
+      Write-Warning ("OneDrive: $od403Count of $odTotal sites returned 403 (access denied)." + $permMissingMsg)
+    } else {
+      Write-Host "  · $od403Count OneDrive site(s) skipped (HTTP 403 — unlicensed/archived sites, expected)." -ForegroundColor DarkYellow
+    }
+  }
+  if ($lockedSiteCount -gt 0) {
+    Write-Host "  · Skipped $lockedSiteCount site(s) locked by admin (HTTP 423 - access blocked by SharePoint admin)." -ForegroundColor DarkYellow
   }
   Write-Host "  -> $(($rows.Count - $countBefore)) new rows from $siteCount sites." -ForegroundColor Gray
 }
@@ -1467,10 +1659,12 @@ if ($IncludeCondAccess) {
 }
 
 # --------------------------------------------------------------
-# 9) PIM Eligible Role Assignments
+# 9) PIM Role Assignments (Eligible + Active)
 # --------------------------------------------------------------
+$pimDetailRows = New-Object System.Collections.Generic.List[object]
+
 if ($IncludePIMEligible) {
-  Write-Host "Retrieving PIM eligible role assignments..." -ForegroundColor Cyan
+  Write-Host "Retrieving PIM role assignments (eligible + active)..." -ForegroundColor Cyan
   $countBefore = $rows.Count
 
   # Reuse role definitions from section 1, or fetch if not already loaded
@@ -1488,17 +1682,23 @@ if ($IncludePIMEligible) {
     }
   }
 
+  # --- Eligible assignments ---
   try {
     $eligibleAssignments = Get-GraphPaged `
-      -Uri "/v1.0/roleManagement/directory/roleEligibilityScheduleInstances?`$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime" `
+      -Uri "/v1.0/roleManagement/directory/roleEligibilityScheduleInstances?`$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,memberType" `
       -Headers $headers
 
     foreach ($ea in $eligibleAssignments) {
-      $p        = Get-PrincipalInfo -Id $ea.principalId
-      $roleName = Coalesce -Value $roleDefMap[$ea.roleDefinitionId] -Fallback $ea.roleDefinitionId
-      $startDt  = Coalesce -Value (Get-GraphPropValue $ea "startDateTime") -Fallback ""
-      $endDt    = Coalesce -Value (Get-GraphPropValue $ea "endDateTime") -Fallback "permanent"
+      $p          = Get-PrincipalInfo -Id $ea.principalId
+      $roleName   = Coalesce -Value $roleDefMap[$ea.roleDefinitionId] -Fallback $ea.roleDefinitionId
+      $startDt    = Coalesce -Value (Get-GraphPropValue $ea "startDateTime") -Fallback ""
+      $endDt      = Coalesce -Value (Get-GraphPropValue $ea "endDateTime") -Fallback ""
+      $endDtDisp  = if ($endDt) { $endDt } else { "permanent" }
+      $scopeId    = Coalesce -Value (Get-GraphPropValue $ea "directoryScopeId") -Fallback ""
+      $memberType = Coalesce -Value (Get-GraphPropValue $ea "memberType") -Fallback ""
+      $status     = Coalesce -Value (Get-GraphPropValue $ea "status") -Fallback ""
 
+      # Keep main row (backward compat)
       [void]$rows.Add((New-AssignmentRow `
         -Service          "Entra" `
         -ResourceType     "DirectoryRole" `
@@ -1507,8 +1707,30 @@ if ($IncludePIMEligible) {
         -AssignmentType   "EligibleRoleAssignment" `
         -RoleOrPermission $roleName `
         -PrincipalInfo    $p `
-        -Details          ("ScopeId={0}; Eligible={1} to {2}" -f $ea.directoryScopeId, $startDt, $endDt)
+        -Details          ("ScopeId={0}; Eligible={1} to {2}" -f $scopeId, $startDt, $endDtDisp)
       ))
+
+      # Rich PIM detail row
+      [void]$pimDetailRows.Add([pscustomobject]@{
+        AssignmentCategory = "Eligible"
+        AssignmentType     = "Eligible"
+        IsPermanent        = if (-not $endDt) { "Yes" } else { "No" }
+        StartDateTime      = $startDt
+        EndDateTime        = $endDtDisp
+        Status             = $status
+        MemberType         = $memberType
+        ScopeId            = $scopeId
+        ScopeType          = if ($scopeId -eq "/") { "Tenant" } else { "AdministrativeUnit" }
+        RoleDefinitionId   = $ea.roleDefinitionId
+        RoleName           = $roleName
+        PrincipalId        = $p.PrincipalId
+        PrincipalType      = $p.PrincipalType
+        DisplayName        = $p.DisplayName
+        UPN                = $p.UPN
+        Origin             = $p.Origin
+        OnPremisesDN       = $p.OnPremisesDN
+        OnPremisesOU       = $p.OnPremisesOU
+      })
     }
   }
   catch {
@@ -1516,15 +1738,80 @@ if ($IncludePIMEligible) {
     try { $statusCode = $_.Exception.Response.StatusCode.value__ } catch {}
     if ($statusCode -eq 403) {
       Write-Warning ("PIM Eligible: access denied (HTTP 403). " +
-        "Requires RoleEligibilitySchedule.Read.Directory permission. Skipping section.")
+        "Requires RoleEligibilitySchedule.Read.Directory permission. Skipping eligible assignments.")
     } elseif ($statusCode -eq 400) {
-      Write-Warning ("PIM Eligible: API returned 400. " +
-        "Entra ID P2 license is required for PIM. Skipping section.")
+      $errMsg = $_.Exception.Message
+      if ($errMsg -match 'OData|property named|Parsing') {
+        Write-Warning ("PIM Eligible: Graph rejected the query (OData field error): $errMsg")
+      } else {
+        Write-Warning ("PIM Eligible: API returned 400. " +
+          "Entra ID P2 license may be required for PIM. Skipping eligible assignments.")
+      }
     } else {
-      Write-Warning "PIM eligible retrieval failed: $_"
+      Write-Warning "PIM eligible assignment retrieval failed: $_"
     }
   }
+
+  # --- Active (assigned / activated) assignments ---
+  try {
+    $activeAssignments = Get-GraphPaged `
+      -Uri "/v1.0/roleManagement/directory/roleAssignmentScheduleInstances?`$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,assignmentType,memberType" `
+      -Headers $headers
+
+    foreach ($aa in $activeAssignments) {
+      $p          = Get-PrincipalInfo -Id $aa.principalId
+      $roleName   = Coalesce -Value $roleDefMap[$aa.roleDefinitionId] -Fallback $aa.roleDefinitionId
+      $startDt    = Coalesce -Value (Get-GraphPropValue $aa "startDateTime") -Fallback ""
+      $endDt      = Coalesce -Value (Get-GraphPropValue $aa "endDateTime") -Fallback ""
+      $endDtDisp  = if ($endDt) { $endDt } else { "permanent" }
+      $scopeId    = Coalesce -Value (Get-GraphPropValue $aa "directoryScopeId") -Fallback ""
+      $assignType = Coalesce -Value (Get-GraphPropValue $aa "assignmentType") -Fallback ""
+      $memberType = Coalesce -Value (Get-GraphPropValue $aa "memberType") -Fallback ""
+      $status     = Coalesce -Value (Get-GraphPropValue $aa "status") -Fallback ""
+
+      [void]$pimDetailRows.Add([pscustomobject]@{
+        AssignmentCategory = "Active"
+        AssignmentType     = $assignType
+        IsPermanent        = if (-not $endDt) { "Yes" } else { "No" }
+        StartDateTime      = $startDt
+        EndDateTime        = $endDtDisp
+        Status             = $status
+        MemberType         = $memberType
+        ScopeId            = $scopeId
+        ScopeType          = if ($scopeId -eq "/") { "Tenant" } else { "AdministrativeUnit" }
+        RoleDefinitionId   = $aa.roleDefinitionId
+        RoleName           = $roleName
+        PrincipalId        = $p.PrincipalId
+        PrincipalType      = $p.PrincipalType
+        DisplayName        = $p.DisplayName
+        UPN                = $p.UPN
+        Origin             = $p.Origin
+        OnPremisesDN       = $p.OnPremisesDN
+        OnPremisesOU       = $p.OnPremisesOU
+      })
+    }
+  }
+  catch {
+    $statusCode = $null
+    try { $statusCode = $_.Exception.Response.StatusCode.value__ } catch {}
+    if ($statusCode -eq 403) {
+      Write-Warning ("PIM Active: access denied (HTTP 403). " +
+        "Requires RoleManagement.Read.Directory permission. Skipping active assignments.")
+    } elseif ($statusCode -eq 400) {
+      $errMsg = $_.Exception.Message
+      if ($errMsg -match 'OData|property named|Parsing') {
+        Write-Warning ("PIM Active: Graph rejected the query (OData field error): $errMsg")
+      } else {
+        Write-Warning ("PIM Active: API returned 400. " +
+          "Entra ID P2 license may be required for PIM. Skipping active assignments.")
+      }
+    } else {
+      Write-Warning "PIM active assignment retrieval failed: $_"
+    }
+  }
+
   Write-Host "  -> $(($rows.Count - $countBefore)) new rows from PIM eligible." -ForegroundColor Gray
+  Write-Host "  -> $($pimDetailRows.Count) total PIM detail rows (eligible + active)." -ForegroundColor Gray
 }
 
 # ==============================================================
@@ -1558,10 +1845,14 @@ foreach ($r in $rows) {
   if (-not $princId) { continue }
 
   if (-not $permsByPrincipal.ContainsKey($princId)) {
-    $permsByPrincipal[$princId] = @{ Count = 0; Services = [System.Collections.Generic.HashSet[string]]::new() }
+    $permsByPrincipal[$princId] = @{ Count = 0; Services = [System.Collections.Generic.HashSet[string]]::new(); ServiceCounts = @{} }
   }
   $permsByPrincipal[$princId].Count++
   [void]$permsByPrincipal[$princId].Services.Add($r.Service)
+  if (-not $permsByPrincipal[$princId].ServiceCounts.ContainsKey($r.Service)) {
+    $permsByPrincipal[$princId].ServiceCounts[$r.Service] = 0
+  }
+  $permsByPrincipal[$princId].ServiceCounts[$r.Service]++
 
   # Track principals with privileged directory roles (active or PIM eligible)
   if ($r.Service -eq "Entra" -and $r.ResourceType -eq "DirectoryRole") {
@@ -1591,8 +1882,6 @@ foreach ($id in @($PrincipalCache.Keys)) {
   if ($p.PrincipalType -notin @("User", "Group")) { continue }
 
   $hasPerms      = $permsByPrincipal.ContainsKey($id)
-  $permCount     = if ($hasPerms) { $permsByPrincipal[$id].Count } else { 0 }
-  $serviceList   = if ($hasPerms) { ($permsByPrincipal[$id].Services | Sort-Object) -join ", " } else { "" }
   $hasPrivileged = $privilegedPrincipals.Contains($id)
   $inCA          = $caPrincipals.Contains($id)
   $hasPIM        = $pimPrincipals.Contains($id)
@@ -1612,7 +1901,7 @@ foreach ($id in @($PrincipalCache.Keys)) {
     $recommendation = "Keep synced (CA policy)"
   }
 
-  [void]$syncAnalysisRows.Add([pscustomobject]@{
+  $baseProps = @{
     PrincipalType      = $p.PrincipalType
     PrincipalId        = $p.PrincipalId
     DisplayName        = $p.DisplayName
@@ -1621,16 +1910,29 @@ foreach ($id in @($PrincipalCache.Keys)) {
     OnPremisesDN       = $p.OnPremisesDN
     OnPremisesOU       = $p.OnPremisesOU
     HasM365Permissions = if ($hasPerms) { "Yes" } else { "No" }
-    PermissionCount    = $permCount
-    Services           = $serviceList
     HasPrivilegedRole  = if ($hasPrivileged) { "Yes" } else { "No" }
     InCAPolicy         = if ($inCA) { "Yes" } else { "No" }
     HasPIMEligible     = if ($hasPIM) { "Yes" } else { "No" }
     SyncRecommendation = $recommendation
-  })
+  }
+
+  if ($hasPerms) {
+    # One row per service so each service lands on its own line
+    foreach ($svc in ($permsByPrincipal[$id].ServiceCounts.Keys | Sort-Object)) {
+      [void]$syncAnalysisRows.Add([pscustomobject]($baseProps + @{
+        Service         = $svc
+        PermissionCount = $permsByPrincipal[$id].ServiceCounts[$svc]
+      }))
+    }
+  } else {
+    [void]$syncAnalysisRows.Add([pscustomobject]($baseProps + @{
+      Service         = ""
+      PermissionCount = 0
+    }))
+  }
 }
 
-# Sort: actionable items first
+# Sort: actionable items first, then by principal name and service
 $syncAnalysisRows = [System.Collections.Generic.List[object]]@(
   $syncAnalysisRows | Sort-Object @{Expression={
     switch ($_.SyncRecommendation) {
@@ -1641,16 +1943,18 @@ $syncAnalysisRows = [System.Collections.Generic.List[object]]@(
       "Cloud-only (OK)"       { 5 }
       default                 { 6 }
     }
-  }}, DisplayName
+  }}, DisplayName, Service
 )
 
-$syncedCount          = @($syncAnalysisRows | Where-Object { $_.Origin -eq "ADSync" }).Count
-$cloudOnlyCount       = @($syncAnalysisRows | Where-Object { $_.Origin -eq "CloudOnly" }).Count
-$considerSyncingCount = @($syncAnalysisRows | Where-Object { $_.SyncRecommendation -eq "Consider syncing" }).Count
-$reviewSyncCount      = @($syncAnalysisRows | Where-Object { $_.SyncRecommendation -eq "Review sync need" }).Count
-$keepSyncedCACount    = @($syncAnalysisRows | Where-Object { $_.SyncRecommendation -eq "Keep synced (CA policy)" }).Count
+# Count unique principals per category (each principal may appear once per service)
+$syncedCount          = @($syncAnalysisRows | Group-Object PrincipalId | Where-Object { $_.Group[0].Origin -eq "ADSync" }).Count
+$cloudOnlyCount       = @($syncAnalysisRows | Group-Object PrincipalId | Where-Object { $_.Group[0].Origin -eq "CloudOnly" }).Count
+$considerSyncingCount = @($syncAnalysisRows | Group-Object PrincipalId | Where-Object { $_.Group[0].SyncRecommendation -eq "Consider syncing" }).Count
+$reviewSyncCount      = @($syncAnalysisRows | Group-Object PrincipalId | Where-Object { $_.Group[0].SyncRecommendation -eq "Review sync need" }).Count
+$keepSyncedCACount    = @($syncAnalysisRows | Group-Object PrincipalId | Where-Object { $_.Group[0].SyncRecommendation -eq "Keep synced (CA policy)" }).Count
 
-Write-Host "  -> $($syncAnalysisRows.Count) principals analyzed." -ForegroundColor Gray
+$uniquePrincipalsAnalyzed = @($syncAnalysisRows | Select-Object PrincipalId -Unique).Count
+Write-Host "  -> $uniquePrincipalsAnalyzed principals analyzed ($($syncAnalysisRows.Count) service-rows)." -ForegroundColor Gray
 Write-Host "     Synced: $syncedCount | Cloud-only: $cloudOnlyCount" -ForegroundColor Gray
 if ($considerSyncingCount -gt 0) {
   Write-Host "     Consider syncing: $considerSyncingCount (cloud-only with privileged roles/CA)" -ForegroundColor Yellow
@@ -1758,12 +2062,27 @@ try {
       $syncColumns = @(
         "PrincipalType","PrincipalId","DisplayName","UPN",
         "Origin","OnPremisesDN","OnPremisesOU",
-        "HasM365Permissions","PermissionCount","Services",
+        "HasM365Permissions","Service","PermissionCount",
         "HasPrivilegedRole","InCAPolicy","HasPIMEligible","SyncRecommendation"
       )
       $syncAnalysisRows | Select-Object $syncColumns |
         Export-Excel -Path $xlsxPath -WorksheetName "Sync Analysis" `
                      -AutoSize -AutoFilter -FreezeTopRow -Append
+    }
+
+    # PIM Details worksheet
+    if ($IncludePIMEligible -and $pimDetailRows.Count -gt 0) {
+      $pimColumns = @(
+        "AssignmentCategory","AssignmentType","IsPermanent",
+        "StartDateTime","EndDateTime","Status","MemberType",
+        "ScopeId","ScopeType","RoleDefinitionId","RoleName",
+        "PrincipalId","PrincipalType","DisplayName","UPN",
+        "Origin","OnPremisesDN","OnPremisesOU"
+      )
+      $pimDetailRows | Select-Object $pimColumns |
+        Export-Excel -Path $xlsxPath -WorksheetName "PIM Details" `
+                     -AutoSize -AutoFilter -FreezeTopRow -Append
+      Write-Host "  PIM Details sheet    : $($pimDetailRows.Count) rows" -ForegroundColor Green
     }
 
     Write-Host "  Excel            : $xlsxPath" -ForegroundColor Green
@@ -1780,6 +2099,13 @@ try {
     $syncCsvPath = Join-Path $runFolder "SyncAnalysis.csv"
     $syncAnalysisRows | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $syncCsvPath
     Write-Host "  Sync analysis (CSV) : $syncCsvPath" -ForegroundColor Green
+  }
+
+  # Always export PIM details as CSV too
+  if ($IncludePIMEligible -and $pimDetailRows.Count -gt 0) {
+    $pimCsvPath = Join-Path $runFolder "PIMDetails.csv"
+    $pimDetailRows | Export-Csv -NoTypeInformation -Encoding UTF8 -Path $pimCsvPath
+    Write-Host "  PIM details (CSV)   : $pimCsvPath" -ForegroundColor Green
   }
 
   Write-JsonFile -Object @{
