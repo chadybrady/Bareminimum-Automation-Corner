@@ -44,6 +44,8 @@ $script:RequiredScopes = @(
     'GroupMember.ReadWrite.All'
     'RoleManagement.ReadWrite.Directory'
     'Directory.ReadWrite.All'
+    'PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup'
+    'PrivilegedAccess.ReadWrite.AzureADGroup'
 )
 
 $script:RoleCache  = @{}   # displayName  → role definition ID
@@ -95,7 +97,8 @@ function Show-Banner {
     Write-BRow 'Each account gets:'
     Write-BRow '· A structured UPN  →  cadm-<first3><last3>-<3digits>@domain'   -Prefix '    '
     Write-BRow '· A 24-character cryptographically secure password'              -Prefix '    '
-    Write-BRow '· Optional group memberships (Object IDs, semicolon-separated)'  -Prefix '    '
+    Write-BRow '· Optional permanent group memberships (Object IDs, semicolon-separated)'   -Prefix '    '
+    Write-BRow '· Optional PIM-eligible group memberships (role-assignable groups only)'    -Prefix '    '
     Write-BRow '· Optional permanent Entra role assignments'                     -Prefix '    '
     Write-BRow '· Optional PIM-eligible role assignments (no expiry)'            -Prefix '    '
     Write-BRow '· Optional manager assignment'                                   -Prefix '    '
@@ -106,9 +109,9 @@ function Show-Banner {
     Write-BBlank
     Write-BRow 'Required  :  FirstName  |  LastName'
     Write-BRow 'Optional  :  Domain  |  DisplayName  |  Department  |  JobTitle'
-    Write-BRow '              Manager  |  Groups  |  PermanentRoles  |  EligibleRoles' -Prefix ''
+    Write-BRow '              Manager  |  Groups  |  EligibleGroups  |  PermanentRoles  |  EligibleRoles' -Prefix ''
     Write-BRow 'Multi-value columns (Groups / Roles): separate entries with  ;'
-    Write-BRow '! Groups must use Object IDs (GUIDs), not display names.' -Prefix '  ' -Color DarkYellow
+    Write-BRow '! Groups + EligibleGroups must use Object IDs (GUIDs), not display names.' -Prefix '  ' -Color DarkYellow
     Write-BBlank
     Write-BSep
     Write-BRow 'HOW TO USE' -Color DarkCyan
@@ -339,17 +342,19 @@ function Select-Domain {
 function New-ExcelTemplate {
     param([string]$Path)
 
-    $template = [PSCustomObject]@{
-        FirstName      = ''
-        LastName       = ''
-        Domain         = ''
+    $example = [PSCustomObject]@{
+        FirstName      = 'John'
+        LastName       = 'Doe'
+        Domain         = 'contoso.com'
         DisplayName    = ''
-        Department     = ''
-        JobTitle       = ''
-        Manager        = ''
-        Groups         = ''
-        PermanentRoles = ''
-        EligibleRoles  = ''
+        Department     = 'IT'
+        JobTitle       = 'IT Administrator'
+        CompanyName    = 'Contoso Ltd'
+        Manager        = 'manager@contoso.com'
+        Groups         = '00000000-0000-0000-0000-000000000000'
+        EligibleGroups = '00000000-0000-0000-0000-000000000000'
+        PermanentRoles = 'Exchange Administrator'
+        EligibleRoles  = 'Global Administrator'
     }
 
     $excelParams = @{
@@ -360,9 +365,46 @@ function New-ExcelTemplate {
         FreezeTopRow  = $true
         TableName     = 'AdminUsers'
         TableStyle    = 'Medium2'
+        ClearSheet    = $true
     }
 
-    $template | Export-Excel @excelParams
+    $pkg = $example | Export-Excel @excelParams -PassThru
+    $ws  = $pkg.Workbook.Worksheets['AdminUsers']
+
+    # Column comments — plain array, index 0 = column 1
+    $headerComments = @(
+        "FirstName`nRequired. First name of the admin account holder."
+        "LastName`nRequired. Last name of the admin account holder."
+        "Domain`nOptional. Overrides the global domain for this row only.`nExample: contoso.com"
+        "DisplayName`nOptional. Leave blank to auto-generate as: CADM - FirstName LastName"
+        "Department`nOptional. Department set on the Entra user object."
+        "JobTitle`nOptional. Job title set on the Entra user object."
+        "CompanyName`nOptional. Company name set on the Entra user object."
+        "Manager`nOptional. UPN, display name, or Object ID of the manager."
+        "Groups`n! Object IDs (GUIDs) only - display names are NOT supported.`nAdds the user as a PERMANENT direct member of the group.`nSeparate multiple values with a semicolon (;).`nFind the ID in: Entra ID > Groups > <group> > Overview."
+        "EligibleGroups`n! Object IDs (GUIDs) only - display names are NOT supported.`nAdds the user as a PIM ELIGIBLE member of a role-assignable (PIM-enabled) group.`nThe group must have 'Azure AD roles can be assigned to the group' enabled.`nSeparate multiple values with a semicolon (;).`nFind the ID in: Entra ID > Groups > <group> > Overview."
+        "PermanentRoles`nOptional. Entra role display names for permanent assignment.`nSeparate multiple values with a semicolon (;).`nExample: Exchange Administrator;User Administrator"
+        "EligibleRoles`nOptional. Entra role display names for PIM eligible assignment (no expiry).`nSeparate multiple values with a semicolon (;).`nExample: Global Administrator"
+    )
+
+    for ($col = 1; $col -le $headerComments.Count; $col++) {
+        $comment = $ws.Comments.Add($ws.Cells[1, [int]$col], $headerComments[$col - 1], 'Note')
+        $comment.AutoFit = $true
+    }
+
+    # Style example row (row 2) italic — colour is best-effort (System.Drawing may be unavailable on macOS)
+    for ($col = 1; $col -le $headerComments.Count; $col++) {
+        $ws.Cells[2, [int]$col].Style.Font.Italic = $true
+        try {
+            $ws.Cells[2, [int]$col].Style.Font.Color.SetColor([System.Drawing.Color]::Gray)
+        } catch { <# System.Drawing not available on this platform #> }
+    }
+
+    $exNote = $ws.Comments.Add($ws.Cells[2, 1],
+        'Example row — shows expected format. Delete this row before running the script.', 'Tip')
+    $exNote.AutoFit = $true
+
+    Close-ExcelPackage $pkg -Show:$false
     Write-Ok "Template created: $Path"
 }
 
@@ -525,6 +567,9 @@ foreach ($row in $validRows) {
     if (-not [string]::IsNullOrWhiteSpace([string]$row.JobTitle)) {
         $userParams['JobTitle'] = ([string]$row.JobTitle).Trim()
     }
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.CompanyName)) {
+        $userParams['CompanyName'] = ([string]$row.CompanyName).Trim()
+    }
 
     $newUser = $null
     try {
@@ -540,7 +585,22 @@ foreach ($row in $validRows) {
         continue
     }
 
-    # ── Group membership ─────────────────────────────────────────────────────
+    # ── Wait for replication before PIM assignments ───────────────────────────
+    # The PIM APIs require the principal to be fully visible in the directory.
+    # Retry for up to 60 seconds before proceeding.
+    Write-Info "  Waiting for directory replication…"
+    $replicated = $false
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        Start-Sleep -Seconds 5
+        $check = Get-MgUser -UserId $newUser.Id -Select 'id' -ErrorAction SilentlyContinue
+        if ($check) { $replicated = $true; break }
+        Write-Info "  · Not yet visible (attempt $attempt/12)…"
+    }
+    if (-not $replicated) {
+        Write-Warn "  User $upn not fully replicated after 60 s — PIM assignments may fail."
+    }
+
+    # ── Group membership (permanent) ─────────────────────────────────────────
     $groupStatus = [System.Collections.Generic.List[string]]::new()
     if (-not [string]::IsNullOrWhiteSpace([string]$row.Groups)) {
         foreach ($grp in (([string]$row.Groups) -split ';')) {
@@ -553,9 +613,40 @@ foreach ($row in $validRows) {
                     -Uri     "v1.0/groups/$groupId/members/`$ref" `
                     -Body    $memberBody -ErrorAction Stop
                 $groupStatus.Add($grp)
-                Write-Ok "  Added to group: $grp"
+                Write-Ok "  Added to group (permanent): $grp"
             } catch {
                 Write-Warn "  Group '$grp': $_"
+            }
+        }
+    }
+
+    # ── PIM eligible group membership ────────────────────────────────────────
+    # Requires the group to be a role-assignable (PIM-enabled) group.
+    $eligGroupStatus = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace([string]$row.EligibleGroups)) {
+        foreach ($grp in (([string]$row.EligibleGroups) -split ';')) {
+            $grp = $grp.Trim()
+            if ([string]::IsNullOrWhiteSpace($grp)) { continue }
+            try {
+                $groupId      = Get-GroupObjectId -NameOrId $grp
+                $grpEligBody  = @{
+                    accessId      = 'member'
+                    principalId   = $newUser.Id
+                    groupId       = $groupId
+                    action        = 'adminAssign'
+                    justification = 'Admin account provisioning'
+                    scheduleInfo  = @{
+                        startDateTime = (Get-Date).ToUniversalTime().ToString('o')
+                        expiration    = @{ type = 'noExpiration' }
+                    }
+                }
+                Invoke-MgGraphRequest -Method POST `
+                    -Uri  'v1.0/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests' `
+                    -Body $grpEligBody -ErrorAction Stop
+                $eligGroupStatus.Add($grp)
+                Write-Ok "  Added to group (PIM eligible): $grp"
+            } catch {
+                Write-Warn "  Eligible group '$grp': $_"
             }
         }
     }
@@ -632,6 +723,7 @@ foreach ($row in $validRows) {
         DisplayName    = $displayName
         Password       = $password
         Groups         = ($groupStatus     -join '; ')
+        EligibleGroups = ($eligGroupStatus -join '; ')
         PermanentRoles = ($permRoleStatus  -join '; ')
         EligibleRoles  = ($eligRoleStatus  -join '; ')
         Status         = 'Created'
@@ -652,6 +744,7 @@ foreach ($r in $results) {
             Write-Host '  Display    : ' -NoNewline -ForegroundColor Gray; Write-Host $r.DisplayName
             Write-Host '  Password   : ' -NoNewline -ForegroundColor Gray; Write-Host $r.Password -ForegroundColor Yellow
             if ($r.Groups)         { Write-Host "  Groups     : $($r.Groups)"         -ForegroundColor Gray }
+            if ($r.EligibleGroups) { Write-Host "  PIM Groups : $($r.EligibleGroups)" -ForegroundColor Gray }
             if ($r.PermanentRoles) { Write-Host "  Perm.Roles : $($r.PermanentRoles)" -ForegroundColor Gray }
             if ($r.EligibleRoles)  { Write-Host "  PIM Roles  : $($r.EligibleRoles)"  -ForegroundColor Gray }
         }
