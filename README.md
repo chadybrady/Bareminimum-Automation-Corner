@@ -9,11 +9,10 @@
 | Folder | Description |
 |---|---|
 | [`CodeTwo/`](./CodeTwo/) | Automated deployment and configuration of CodeTwo email signature solutions |
-| [`Entra/`](./Entra/) | Microsoft Entra ID scripts: Break Glass accounts, Conditional Access baselines, Enterprise Application governance |
+| [`Entra/`](./Entra/) | Microsoft Entra ID scripts: admin account provisioning, Break Glass accounts, Conditional Access baselines, domain migrations, and Enterprise Application governance |
 | [`Excel/`](./Excel/) | PowerShell utilities for Excel file processing and conversion |
-| [`Intune/`](./Intune/) | Microsoft Intune scripts: Android management, Apple token monitoring, Win32 app tooling, network settings, and testing |
-| [`M365/`](./M365/) | Microsoft 365 scripts: Copilot/Viva feature management, tenant-wide permissions inventory, and OneDrive administration |
-| [`Powerplatform/`](./Powerplatform/) | Power Platform inventory and governance scripts for Power Apps and Power Automate |
+| [`Intune/`](./Intune/) | Microsoft Intune scripts: Android management, Apple token monitoring, Win32 app lifecycle management, network settings, and configuration testing |
+| [`M365/`](./M365/) | Microsoft 365 scripts: Copilot/Viva feature management, tenant-wide permissions inventory, configuration drift detection, and OneDrive administration |
 
 ---
 
