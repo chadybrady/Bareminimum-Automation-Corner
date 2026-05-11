@@ -8,8 +8,10 @@ PowerShell scripts for managing and securing **Microsoft Entra ID** (formerly Az
 
 | Folder | Description |
 |---|---|
+| [`Admin accounts/`](./Admin%20accounts/) | Bulk-provision Entra ID admin accounts from an Excel file, with group memberships and PIM-eligible role assignments |
 | [`Break the glass/`](./Break%20the%20glass/) | Create and configure emergency Break Glass accounts |
 | [`Conditional access/`](./Conditional%20access/) | Deploy and manage Conditional Access policy baselines |
+| [`Domain change in bulk/`](./Domain%20change%20in%20bulk/) | Bulk-change the primary email domain across all Entra ID and Exchange Online identities |
 | [`Enterprise Application/`](./Enterprise%20Application/) | Monitor, test, and govern Enterprise Applications (service principals) |
 
 ---

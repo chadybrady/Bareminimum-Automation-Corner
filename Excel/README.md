@@ -1,48 +1,50 @@
-# Excel Utilities
+# 📊 Excel Utilities
 
-PowerShell scripts for Excel file manipulation and conversion.
+PowerShell scripts for **Excel file manipulation and conversion**.
 
-## Scripts
+---
 
-### ConvertCSVToExcel.ps1
+## 📄 Scripts
 
-Converts CSV files to Excel (.xlsx) format in bulk. This script:
+### `ConvertCSVToExcel.ps1`
+
+Bulk-converts CSV files to Excel (`.xlsx`) format.
+
+**Features:**
 - Processes all CSV files in a source directory
-- Converts each CSV to Excel format
-- Saves converted files to a destination directory
-- Provides detailed progress and error logging
+- Converts each CSV to Excel format and saves to a destination directory
+- Automatically creates the destination directory if it doesn't exist
+- Preserves original CSV files
+- Provides detailed progress and error logging with per-file error handling
 
-**Prerequisites**:
+---
+
+## ⚙️ Prerequisites
+
+- PowerShell 5.1 or later
 - `ImportExcel` PowerShell module (auto-installed if not present)
 
-**Usage**:
+---
+
+## 🚀 Usage
+
 ```powershell
 .\ConvertCSVToExcel.ps1
 ```
 
-The script will prompt for:
-1. Source directory path (where CSV files are located)
-2. Destination directory path (where Excel files will be saved)
+The script will interactively prompt for:
+1. **Source directory path** — where the CSV files are located
+2. **Destination directory path** — where the converted Excel files will be saved
 
-**Features**:
-- Automatically creates destination directory if it doesn't exist
-- Preserves original CSV files
-- Provides detailed logging of conversion process
-- Error handling for individual file failures
-
-## Example
+**Example:**
 
 ```powershell
-# Run the script
-.\ConvertCSVToExcel.ps1
-
-# When prompted
 Enter the source directory path: C:\Data\CSVFiles
 Enter the destination directory path: C:\Data\ExcelFiles
 ```
 
-The script will process all CSV files and create corresponding .xlsx files in the destination directory.
+---
 
-## Notes
+## 🔗 Related Links
 
-💡 The ImportExcel module will be automatically installed if not present on your system.
+- [ImportExcel module](https://github.com/dfinke/ImportExcel)

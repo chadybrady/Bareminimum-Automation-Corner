@@ -10,6 +10,7 @@ PowerShell scripts for managing **Microsoft Intune** device management operation
 |---|---|
 | [`Android/`](./Android/) | Android device management scripts (e.g., bulk device renaming) |
 | [`Apple-Token-Monitoring/`](./Apple-Token-Monitoring/) | Azure Automation runbook to monitor Apple MDM, VPP, and DEP token expiry |
+| [`Application Management Tools/`](./Application%20Management%20Tools/) | Automated pipeline for detecting, approving, and deploying Win32 app updates |
 | [`Intune Testing tool Sec/`](./Intune%20Testing%20tool%20Sec/) | Validate and audit Intune configuration and security posture |
 | [`Network Settings/`](./Network%20Settings/) | Detect and change DNS server settings on managed devices |
 | [`Win32/`](./Win32/) | Win32 app deployment utilities, including force-reinstall tooling |
