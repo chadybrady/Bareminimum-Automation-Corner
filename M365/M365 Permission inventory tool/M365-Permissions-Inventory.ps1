@@ -1,4 +1,6 @@
 <#
+.Thanks
+-Thank Markus Hedberg (@markus_hedberg) for his invaluable feedback and testing on early versions of this script, and for his own excellent M365 inventory tools which inspired some of the AD enrichment features here:
 .SYNOPSIS
   Tenant-wide permissions inventory (read-only) -> CSV
   Each row = unique assignment of a principal (user/group/SP) to a
