@@ -41,12 +41,18 @@
   Run with device code (SSH / headless terminal, no browser available):
     ./AzureConfigDrift.ps1 -AuthMethod DeviceCode
 
+  Run as an Enterprise Application (app-only, client secret):
+    ./AzureConfigDrift.ps1 -AuthMethod ClientCredentials \
+        -TenantId '00000000-0000-0000-0000-000000000000' \
+        -ClientId  '11111111-0000-0000-0000-000000000000' \
+        -ClientSecret $env:APP_SECRET -Mode Snapshot -Unattended
+
   Target a specific tenant:
     ./AzureConfigDrift.ps1 -TenantId '00000000-0000-0000-0000-000000000000'
 
 .NOTES
   Requires PowerShell 7.0+
-  Modules: Microsoft.Graph.Authentication, Az.Accounts (for MI), Az.Storage (for blob)
+  Modules: Microsoft.Graph.Authentication, Az.Accounts (for MI/SP), Az.Storage (for blob)
 #>
 
 #Requires -Version 7.0
@@ -63,7 +69,8 @@ param(
   # Endpoints to collect. Defaults to all. Valid values:
   # EntraCA, EntraDirectoryRoles, EntraEnterpriseApps, EntraAuthMethods,
   # IntuneDeviceConfig, IntuneCompliance, IntuneAppProtection,
-  # IntuneScripts, IntuneEnrollment, IntuneAppAssignments
+  # IntuneScripts, IntuneEnrollment, IntuneAppAssignments,
+  # IntuneFeatureUpdateProfiles, IntuneQualityUpdateProfiles
   [string[]]$Endpoints,
 
   # Baseline name for SetBaseline (save) or CheckDrift (load).
@@ -88,16 +95,24 @@ param(
   [string]$ManagedIdentityClientId,
 
   # Graph / Azure authentication method when running locally.
-  # Interactive  – opens a browser pop-up (default).
-  # DeviceCode   – prints a code to enter at aka.ms/devicelogin; use this on headless
-  #                terminals, SSH sessions, or when a browser is unavailable.
+  # Interactive        – opens a browser pop-up (default).
+  # DeviceCode         – prints a code to enter at aka.ms/devicelogin; use this on headless
+  #                      terminals, SSH sessions, or when a browser is unavailable.
+  # ClientCredentials  – app-only sign-in via an Entra App Registration client secret.
+  #                      Requires -TenantId, -ClientId, and -ClientSecret.
   # Managed Identity is used automatically when the script is running as a Runbook.
-  [ValidateSet('Interactive', 'DeviceCode')]
+  [ValidateSet('Interactive', 'DeviceCode', 'ClientCredentials')]
   [string]$AuthMethod = 'Interactive',
 
-  # Entra tenant ID to authenticate against. Useful when the signed-in account
-  # has access to multiple tenants. Omit to use the home tenant.
+  # Entra tenant ID to authenticate against. Required for ClientCredentials auth.
   [string]$TenantId,
+
+  # App Registration Application (client) ID. Required when -AuthMethod ClientCredentials.
+  [string]$ClientId,
+
+  # App Registration client secret. Required when -AuthMethod ClientCredentials.
+  # Tip: pass via an environment variable (e.g. $env:APP_SECRET) to avoid plain-text exposure.
+  [string]$ClientSecret,
 
   # When specified with CheckDrift, fetches Intune and Entra audit logs to populate
   # the ModifiedBy field in drift rows. Requires AuditLog.Read.All consent.
@@ -115,7 +130,8 @@ $script:ToolName    = 'Azure Config Drift'
 $script:AllEndpoints = @(
   'EntraCA', 'EntraDirectoryRoles', 'EntraEnterpriseApps', 'EntraAuthMethods',
   'IntuneDeviceConfig', 'IntuneCompliance', 'IntuneAppProtection',
-  'IntuneScripts', 'IntuneEnrollment', 'IntuneAppAssignments', 'IntuneSecurityBaselines'
+  'IntuneScripts', 'IntuneEnrollment', 'IntuneAppAssignments', 'IntuneSecurityBaselines',
+  'IntuneFeatureUpdateProfiles', 'IntuneQualityUpdateProfiles'
 )
 
 $script:EndpointLabels = @{
@@ -129,7 +145,9 @@ $script:EndpointLabels = @{
   IntuneScripts        = 'Intune – Scripts + Health Scripts'
   IntuneEnrollment     = 'Intune – Enrollment Configurations'
   IntuneAppAssignments = 'Intune – App Assignments'
-  IntuneSecurityBaselines = 'Intune – Security Baselines'
+  IntuneSecurityBaselines      = 'Intune – Security Baselines'
+  IntuneFeatureUpdateProfiles  = 'Intune – Feature Update Profiles'
+  IntuneQualityUpdateProfiles  = 'Intune – Quality Update Profiles'
 }
 
 $script:RequiredScopes = @(
@@ -565,6 +583,68 @@ function Get-IntuneAppAssignmentsSnapshot {
   return $result
 }
 
+function Get-IntuneFeatureUpdateProfilesSnapshot {
+  Write-Info 'Collecting Intune Windows Feature Update profiles...'
+  $result = [System.Collections.Generic.List[object]]::new()
+
+  $profiles = @()
+  try {
+    $profiles = Get-GraphPaged -Uri '/beta/deviceManagement/windowsFeatureUpdateProfiles'
+  } catch { Write-Warn "Feature update profiles: $_" }
+
+  foreach ($profile in $profiles) {
+    $assignments = @()
+    try {
+      $assignments = Get-GraphPaged -Uri "/beta/deviceManagement/windowsFeatureUpdateProfiles/$($profile.id)/assignments"
+    } catch { Write-Warn "  Assignments for feature update profile '$($profile.displayName)': $_" }
+
+    [void]$result.Add([pscustomobject]@{
+      id                         = $profile.id
+      displayName                = $profile.displayName
+      description                = (Get-GraphPropValue -Obj $profile -Name 'description')
+      featureUpdateVersion       = (Get-GraphPropValue -Obj $profile -Name 'featureUpdateVersion')
+      installLatestWindows10OnWindows11IneligibleDevice = (Get-GraphPropValue -Obj $profile -Name 'installLatestWindows10OnWindows11IneligibleDevice')
+      rolloutSettings            = (Get-GraphPropValue -Obj $profile -Name 'rolloutSettings')
+      deployableContentDisplayName = (Get-GraphPropValue -Obj $profile -Name 'deployableContentDisplayName')
+      endOfSupportDate           = (Get-GraphPropValue -Obj $profile -Name 'endOfSupportDate')
+      createdDateTime            = $profile.createdDateTime
+      lastModifiedDateTime       = $profile.lastModifiedDateTime
+      assignments                = $assignments
+    })
+  }
+  return $result
+}
+
+function Get-IntuneQualityUpdateProfilesSnapshot {
+  Write-Info 'Collecting Intune Windows Quality Update profiles...'
+  $result = [System.Collections.Generic.List[object]]::new()
+
+  $profiles = @()
+  try {
+    $profiles = Get-GraphPaged -Uri '/beta/deviceManagement/windowsQualityUpdateProfiles'
+  } catch { Write-Warn "Quality update profiles: $_" }
+
+  foreach ($profile in $profiles) {
+    $assignments = @()
+    try {
+      $assignments = Get-GraphPaged -Uri "/beta/deviceManagement/windowsQualityUpdateProfiles/$($profile.id)/assignments"
+    } catch { Write-Warn "  Assignments for quality update profile '$($profile.displayName)': $_" }
+
+    [void]$result.Add([pscustomobject]@{
+      id                   = $profile.id
+      displayName          = $profile.displayName
+      description          = (Get-GraphPropValue -Obj $profile -Name 'description')
+      expeditedUpdateSettings = (Get-GraphPropValue -Obj $profile -Name 'expeditedUpdateSettings')
+      releaseDateDisplayName  = (Get-GraphPropValue -Obj $profile -Name 'releaseDateDisplayName')
+      deployableContentDisplayName = (Get-GraphPropValue -Obj $profile -Name 'deployableContentDisplayName')
+      createdDateTime      = $profile.createdDateTime
+      lastModifiedDateTime = $profile.lastModifiedDateTime
+      assignments          = $assignments
+    })
+  }
+  return $result
+}
+
 # Endpoint dispatch table
 $script:Collectors = [ordered]@{
   EntraCA              = { Get-EntraCASnapshot }
@@ -576,8 +656,10 @@ $script:Collectors = [ordered]@{
   IntuneAppProtection  = { Get-IntuneAppProtectionSnapshot }
   IntuneScripts        = { Get-IntuneScriptsSnapshot }
   IntuneEnrollment     = { Get-IntuneEnrollmentSnapshot }
-  IntuneAppAssignments     = { Get-IntuneAppAssignmentsSnapshot }
-  IntuneSecurityBaselines = { Get-IntuneSecurityBaselinesSnapshot }
+  IntuneAppAssignments        = { Get-IntuneAppAssignmentsSnapshot }
+  IntuneSecurityBaselines     = { Get-IntuneSecurityBaselinesSnapshot }
+  IntuneFeatureUpdateProfiles = { Get-IntuneFeatureUpdateProfilesSnapshot }
+  IntuneQualityUpdateProfiles = { Get-IntuneQualityUpdateProfilesSnapshot }
 }
 
 # ─── Snapshot Orchestrator ───────────────────────────────────────────────────
@@ -1001,6 +1083,15 @@ function Get-StorageContext {
     return $storageCtx
   }
 
+  if ($AuthMethod -eq 'ClientCredentials') {
+    # ── Service principal (client secret) ─────────────────────────────────────
+    Write-Info "Connecting to storage account '$SaName' as service principal..."
+    $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
+    $spCred = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+    Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $spCred | Out-Null
+    return New-AzStorageContext -StorageAccountName $SaName -UseConnectedAccount
+  }
+
   # Interactive: offer SAS token or connection string
   Write-Out ''
   Write-Out '  Storage authentication options:' -Color Yellow
@@ -1181,7 +1272,7 @@ if ($invalid) {
 Ensure-Module -Name 'Microsoft.Graph.Authentication'
 
 $storageCtx = $null
-if ($UploadToBlob -or ($Mode -eq 'CheckDrift' -and -not (Test-Path (Join-Path $baselinesRoot ($BaselineName ?? 'x'))))) {
+if ($UploadToBlob -or ($AuthMethod -eq 'ClientCredentials' -and $StorageAccountName) -or ($Mode -eq 'CheckDrift' -and -not (Test-Path (Join-Path $baselinesRoot ($BaselineName ?? 'x'))))) {
   Ensure-Module -Name 'Az.Accounts'
   Ensure-Module -Name 'Az.Storage'
 }
@@ -1197,6 +1288,14 @@ try {
     if ($ManagedIdentityClientId) { $mgParams['ClientId'] = $ManagedIdentityClientId }
     if ($TenantId)                { $mgParams['TenantId'] = $TenantId }
     Connect-MgGraph @mgParams
+  } elseif ($AuthMethod -eq 'ClientCredentials') {
+    # ── Enterprise Application – app-only, client secret ─────────────────────
+    if (-not $TenantId)     { throw '-TenantId is required when -AuthMethod ClientCredentials is used.' }
+    if (-not $ClientId)     { throw '-ClientId is required when -AuthMethod ClientCredentials is used.' }
+    if (-not $ClientSecret) { throw '-ClientSecret is required when -AuthMethod ClientCredentials is used.' }
+    $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
+    $appCred = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+    Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -ClientSecretCredential $appCred -NoWelcome
   } elseif ($AuthMethod -eq 'DeviceCode') {
     # ── Device code – user auth, no browser required ──────────────────────────
     Write-Info 'Device code authentication: open https://aka.ms/devicelogin and enter the code shown below.'

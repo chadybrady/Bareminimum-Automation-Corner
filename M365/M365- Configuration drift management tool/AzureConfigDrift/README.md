@@ -52,6 +52,8 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 | `IntuneEnrollment` | Intune | Device enrollment configurations |
 | `IntuneAppAssignments` | Intune | All mobile apps and their group assignments |
 | `IntuneSecurityBaselines` | Intune | Security baseline intents with full per-setting values |
+| `IntuneFeatureUpdateProfiles` | Intune | Windows Feature Update profiles and their group assignments |
+| `IntuneQualityUpdateProfiles` | Intune | Windows Quality Update profiles and their group assignments |
 
 ---
 
@@ -69,8 +71,10 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 | `-ContainerName` | String | `drift-management` | Blob container name |
 | `-Unattended` | Switch | — | Suppress all prompts; fail on missing required parameters |
 | `-ManagedIdentityClientId` | String | — | Client ID for a user-assigned Managed Identity |
-| `-AuthMethod` | String | `Interactive` | `Interactive` (browser pop-up) or `DeviceCode` (headless/SSH) |
-| `-TenantId` | String | — | Target tenant ID (useful for multi-tenant accounts) |
+| `-AuthMethod` | String | `Interactive` | `Interactive` (browser pop-up), `DeviceCode` (headless/SSH), or `ClientCredentials` (app-only via Enterprise Application client secret) |
+| `-TenantId` | String | — | Target tenant ID. Required when `-AuthMethod ClientCredentials` |
+| `-ClientId` | String | — | App Registration Application (client) ID. Required when `-AuthMethod ClientCredentials` |
+| `-ClientSecret` | String | — | App Registration client secret. Required when `-AuthMethod ClientCredentials`. Pass via `$env:VAR` to avoid plain-text exposure |
 | `-IncludeAuditData` | Switch | — | Fetch Intune and Entra audit logs to populate `ModifiedBy` in drift rows. Requires `AuditLog.Read.All` |
 
 ---
@@ -86,8 +90,8 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 | Module | Required when |
 |---|---|
 | `Microsoft.Graph.Authentication` | Always (auto-installed if missing) |
-| `Az.Accounts` | Azure Automation / Managed Identity |
-| `Az.Storage` | Blob upload (`-UploadToBlob`) |
+| `Az.Accounts` | Azure Automation (Managed Identity), `ClientCredentials` with `-StorageAccountName`, or blob operations |
+| `Az.Storage` | Blob upload (`-UploadToBlob`) or downloading baselines from blob |
 
 ### Microsoft Graph Permissions
 
@@ -183,6 +187,13 @@ AzureConfigDrift\
 
 # Device code authentication — headless or SSH sessions
 .\AzureConfigDrift.ps1 -AuthMethod DeviceCode
+
+# Enterprise Application (app-only, client secret) — pipeline / unattended
+.\AzureConfigDrift.ps1 -AuthMethod ClientCredentials `
+    -TenantId  "00000000-0000-0000-0000-000000000000" `
+    -ClientId  "11111111-0000-0000-0000-000000000000" `
+    -ClientSecret $env:APP_SECRET `
+    -Mode Snapshot -Unattended
 
 # Target a specific tenant
 .\AzureConfigDrift.ps1 -TenantId "00000000-0000-0000-0000-000000000000"
