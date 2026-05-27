@@ -6,7 +6,8 @@
 #
 #  Usage:
 #    Generate template : .\Create-AdminUsers.ps1 -GenerateTemplate -TemplatePath .\template.xlsx
-#    Run provisioning  : .\Create-AdminUsers.ps1 -ExcelPath .\template.xlsx -GlobalDomain contoso.com
+#    Run (interactive) : .\Create-AdminUsers.ps1          ← choose Bulk or Single from the menu
+#    Run (bulk direct) : .\Create-AdminUsers.ps1 -ExcelPath .\template.xlsx -GlobalDomain contoso.com
 # ─────────────────────────────────────────────────────────────────────────────
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -21,7 +22,10 @@ param(
     [switch]$GenerateTemplate,
 
     [Parameter(HelpMessage = 'Output path for the generated template.')]
-    [string]$TemplatePath = '.\AdminUsers-Template.xlsx'
+    [string]$TemplatePath = '.\AdminUsers-Template.xlsx',
+
+    [Parameter(HelpMessage = 'Create a single user interactively without an Excel file.')]
+    [switch]$SingleUser
 )
 
 Set-StrictMode -Version Latest
@@ -122,8 +126,11 @@ function Show-Banner {
     Write-BBlank
     Write-BRow '2. Fill in the Excel template and save it.'
     Write-BBlank
-    Write-BRow '3. Run the script:'
-    Write-BRow '.\Create-AdminUsers.ps1 -ExcelPath .\template.xlsx -GlobalDomain contoso.com' -Prefix '       ' -Color Yellow
+    Write-BRow '3. Run the script — choose your mode from the menu:'
+    Write-BRow '.\Create-AdminUsers.ps1' -Prefix '       ' -Color Yellow
+    Write-BBlank
+    Write-BRow '   1. Bulk    — provide an Excel path; creates all rows as admin accounts' -Prefix '       '
+    Write-BRow '   2. Single  — enter one account interactively; no Excel file needed'    -Prefix '       '
     Write-BBlank
     Write-BSep
     Write-BRow 'OUTPUT' -Color DarkCyan
@@ -408,6 +415,59 @@ function New-ExcelTemplate {
     Write-Ok "Template created: $Path"
 }
 
+function Invoke-SingleUserInput {
+    [OutputType([PSCustomObject])]
+    param()
+
+    Write-Host ''
+    Write-Step "Single-user mode — enter account details"
+    Write-Host '  Press Enter to skip optional fields.' -ForegroundColor Gray
+    Write-Host ''
+
+    $firstName = ''
+    while ([string]::IsNullOrWhiteSpace($firstName)) {
+        $firstName = (Read-Host '  First name       (required)').Trim()
+        if ([string]::IsNullOrWhiteSpace($firstName)) { Write-Warn '  First name is required.' }
+    }
+
+    $lastName = ''
+    while ([string]::IsNullOrWhiteSpace($lastName)) {
+        $lastName = (Read-Host '  Last name        (required)').Trim()
+        if ([string]::IsNullOrWhiteSpace($lastName)) { Write-Warn '  Last name is required.' }
+    }
+
+    $displayName = (Read-Host "  Display name     [auto: CADM - $firstName $lastName]").Trim()
+    $department  = (Read-Host '  Department       [optional]').Trim()
+    $jobTitle    = (Read-Host '  Job title        [optional]').Trim()
+    $companyName = (Read-Host '  Company name     [optional]').Trim()
+    $manager     = (Read-Host '  Manager UPN/GUID [optional]').Trim()
+
+    Write-Host ''
+    Write-Host '  For Groups and Roles, separate multiple values with  ;' -ForegroundColor Gray
+    Write-Host '  Groups must be Object IDs (GUIDs), not display names.' -ForegroundColor Gray
+    Write-Host ''
+
+    $groups      = (Read-Host '  Perm. groups     (GUIDs; optional)').Trim()
+    $eligGroups  = (Read-Host '  PIM groups       (GUIDs; optional)').Trim()
+    $permRoles   = (Read-Host '  Perm. roles      (display names; optional)').Trim()
+    $eligRoles   = (Read-Host '  PIM roles        (display names; optional)').Trim()
+
+    return [PSCustomObject]@{
+        FirstName      = $firstName
+        LastName       = $lastName
+        Domain         = ''
+        DisplayName    = $displayName
+        Department     = $department
+        JobTitle       = $jobTitle
+        CompanyName    = $companyName
+        Manager        = $manager
+        Groups         = $groups
+        EligibleGroups = $eligGroups
+        PermanentRoles = $permRoles
+        EligibleRoles  = $eligRoles
+    }
+}
+
 # ─── Phase 0 — Modules & Auth ─────────────────────────────────────────────────
 
 Write-Step "Checking required modules"
@@ -436,12 +496,30 @@ if ($GenerateTemplate) {
     exit 0
 }
 
-if (-not $ExcelPath) {
-    $ExcelPath = Read-Host "Enter path to the Excel input file"
+# ─ Mode selection ────────────────────────────────────────────────────────────
+if (-not $SingleUser -and -not $ExcelPath) {
+    Write-Host '  Select mode:' -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '  1. Bulk    — create multiple accounts from an Excel file'   -ForegroundColor Gray
+    Write-Host '  2. Single  — create one account interactively (no Excel needed)' -ForegroundColor Gray
+    Write-Host ''
+    $modeChoice = ''
+    while ($modeChoice -notin @('1', '2')) {
+        $modeChoice = (Read-Host '  Mode [1/2]').Trim()
+        if ($modeChoice -notin @('1', '2')) { Write-Warn '  Enter 1 or 2.' }
+    }
+    if ($modeChoice -eq '2') { $SingleUser = [switch]$true }
+    Write-Host ''
 }
-if (-not (Test-Path -Path $ExcelPath)) {
-    Write-Fail "File not found: $ExcelPath"
-    exit 1
+
+if (-not $SingleUser) {
+    if (-not $ExcelPath) {
+        $ExcelPath = Read-Host "Enter path to the Excel input file"
+    }
+    if (-not (Test-Path -Path $ExcelPath)) {
+        Write-Fail "File not found: $ExcelPath"
+        exit 1
+    }
 }
 
 if (-not $GlobalDomain) {
@@ -452,7 +530,16 @@ if ([string]::IsNullOrWhiteSpace($GlobalDomain)) {
     exit 1
 }
 
+if ($SingleUser) {
+    $singleRow = Invoke-SingleUserInput
+    $validRows = [System.Collections.Generic.List[object]]::new()
+    $validRows.Add($singleRow)
+    Write-Info "1 user to process."
+}
+
 # ─── Phase 2 — Import & Validate ──────────────────────────────────────────────
+
+if (-not $SingleUser) {
 
 Write-Step "Importing Excel: $ExcelPath"
 
@@ -494,6 +581,8 @@ if ($validRows.Count -eq 0) {
     Write-Fail "No valid rows to process."
     exit 1
 }
+
+} # end if (-not $SingleUser)
 
 # ─── Phase 3 — Create Users ───────────────────────────────────────────────────
 
@@ -754,7 +843,11 @@ foreach ($r in $results) {
 }
 
 # Export results Excel
-$inputDir   = Split-Path -Parent (Resolve-Path -Path $ExcelPath)
+$inputDir = if ($ExcelPath) {
+    Split-Path -Parent (Resolve-Path -Path $ExcelPath)
+} else {
+    if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
+}
 $timestamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
 $outputPath = Join-Path $inputDir "AdminUsers-Results-$timestamp.xlsx"
 
