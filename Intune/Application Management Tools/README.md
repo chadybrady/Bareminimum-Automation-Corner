@@ -39,3 +39,7 @@ Scripts and pipelines for managing the **lifecycle of applications deployed thro
 - [Azure Automation Runbooks](https://learn.microsoft.com/en-us/azure/automation/automation-runbook-types)
 - [Microsoft Win32 Content Prep Tool](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool)
 - [Power Automate Documentation](https://learn.microsoft.com/en-us/power-automate/)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.

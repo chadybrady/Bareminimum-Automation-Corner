@@ -2,7 +2,14 @@
 
 Generates a comprehensive **HTML governance report** for all Enterprise Applications (service principals) in Microsoft Entra ID. Designed to help IT administrators assess application security posture, identify stale or risky apps, and improve application lifecycle management.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Test-EnterpriseApplications.ps1`](./Test-EnterpriseApplications.ps1) | Tests enterprise app posture and exports a governance-focused report. |
 
 ## 📄 Script
 
@@ -78,3 +85,9 @@ Produces a self-contained **HTML report** with colour-coded status indicators, f
 - [Enterprise Application Governance](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/govern-enterprise-apps)
 - [Application Credential Best Practices](https://learn.microsoft.com/en-us/entra/identity-platform/security-best-practices-for-app-registration)
 - [Least-Privilege Application Permissions](https://learn.microsoft.com/en-us/entra/identity-platform/secure-least-privileged-access)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

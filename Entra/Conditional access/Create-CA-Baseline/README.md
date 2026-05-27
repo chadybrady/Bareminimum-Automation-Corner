@@ -2,7 +2,14 @@
 
 Creates a standard **Conditional Access policy baseline** (CA001–CA017) in Microsoft Entra ID using the `Microsoft.Entra` and `Microsoft.Graph` PowerShell modules.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`CreateCaBaseline.ps1`](./CreateCaBaseline.ps1) | Creates a predefined Conditional Access baseline policy set for Entra ID. |
 
 ## 📄 Script
 
@@ -68,3 +75,9 @@ The script will interactively prompt for:
 
 - [Conditional Access Policy Baseline](https://learn.microsoft.com/en-us/entra/identity/conditional-access/plan-conditional-access)
 - [Entra ID Protection (P2)](https://learn.microsoft.com/en-us/entra/id-protection/)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

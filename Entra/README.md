@@ -38,3 +38,7 @@ PowerShell scripts for managing and securing **Microsoft Entra ID** (formerly Az
 - [Microsoft Entra ID Documentation](https://learn.microsoft.com/en-us/entra/identity/)
 - [Conditional Access Overview](https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview)
 - [Break Glass Accounts Best Practices](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.

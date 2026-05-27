@@ -2,7 +2,14 @@
 
 An **Azure Automation runbook** that monitors Enterprise Application (service principal) client secrets and Apple-style connector expiry in Microsoft Intune, sending alerts to a Microsoft Teams channel before credentials expire.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`enterpriseappmonitoringsecret.ps1`](./enterpriseappmonitoringsecret.ps1) | Audits enterprise app credentials and permissions, highlighting expiring secrets and high-risk grants. |
 
 ## 📄 Script
 
@@ -77,3 +84,9 @@ $Uri = "<your-teams-webhook-url>"
 - [Azure Automation Runbooks](https://learn.microsoft.com/en-us/azure/automation/automation-runbook-types)
 - [Microsoft Teams Incoming Webhooks](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook)
 - [Enterprise Application Credential Management](https://learn.microsoft.com/en-us/entra/identity-platform/howto-create-service-principal-portal)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

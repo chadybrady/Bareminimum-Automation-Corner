@@ -2,7 +2,14 @@
 
 PowerShell scripts for **Excel file manipulation and conversion**.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`ConvertCSVToExcel.ps1`](./ConvertCSVToExcel.ps1) | Converts CSV files into formatted Excel workbooks using ImportExcel. |
 
 ## 📄 Scripts
 
@@ -48,3 +55,9 @@ Enter the destination directory path: C:\Data\ExcelFiles
 ## 🔗 Related Links
 
 - [ImportExcel module](https://github.com/dfinke/ImportExcel)
+
+## 🛡️ Security Notes
+
+- Validate CSV input sources before conversion to avoid propagating malformed or untrusted data.
+- Review destination paths so converted files are written only to approved locations.
+- Treat converted workbooks as business data and store them in approved repositories.

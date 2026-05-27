@@ -27,3 +27,12 @@ PowerShell tooling for **detecting and reporting configuration drift** across Mi
 - [Azure Config Drift Tool README](./AzureConfigDrift/README.md)
 - [Microsoft Entra ID Documentation](https://learn.microsoft.com/en-us/entra/identity/)
 - [Microsoft Intune Documentation](https://learn.microsoft.com/en-us/mem/intune/)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

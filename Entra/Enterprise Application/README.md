@@ -38,3 +38,7 @@ Scripts for monitoring, testing, and governing **Enterprise Applications (Servic
 - [Enterprise Applications in Entra ID](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/what-is-application-management)
 - [Application Credential Best Practices](https://learn.microsoft.com/en-us/entra/identity-platform/security-best-practices-for-app-registration)
 - [Microsoft Graph Application Permissions](https://learn.microsoft.com/en-us/graph/permissions-reference)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.

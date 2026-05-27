@@ -40,3 +40,7 @@ PowerShell scripts for managing **Microsoft Intune** device management operation
 - [Microsoft Intune Documentation](https://learn.microsoft.com/en-us/mem/intune/)
 - [Microsoft Graph Intune API](https://learn.microsoft.com/en-us/graph/api/resources/intune-graph-overview)
 - [Intune Proactive Remediations](https://learn.microsoft.com/en-us/mem/intune/fundamentals/remediations)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.

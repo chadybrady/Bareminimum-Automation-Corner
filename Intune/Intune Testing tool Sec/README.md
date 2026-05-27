@@ -2,7 +2,14 @@
 
 A comprehensive **security and configuration audit script** for Microsoft Intune. Validates your Intune deployment against best practices and generates a detailed assessment report.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Test-IntuneConfiguration.ps1`](./Test-IntuneConfiguration.ps1) | Runs read-only checks against Intune configuration and reports baseline compliance. |
 
 ## 📄 Script
 
@@ -53,3 +60,9 @@ Connects to Microsoft Graph and evaluates the current Intune configuration acros
 - [Microsoft Intune Security Baseline](https://learn.microsoft.com/en-us/mem/intune/protect/security-baselines)
 - [Intune Device Compliance Policies](https://learn.microsoft.com/en-us/mem/intune/protect/device-compliance-get-started)
 - [Intune App Protection Policies](https://learn.microsoft.com/en-us/mem/intune/apps/app-protection-policy)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

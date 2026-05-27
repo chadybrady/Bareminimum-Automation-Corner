@@ -1,8 +1,15 @@
-# 🆘 Create Break Glass Accounts
+# 📘 🆘 Create Break Glass Accounts
 
 Creates two **emergency access (Break Glass) accounts** in Microsoft Entra ID, assigns them the **Global Administrator** role, and optionally creates or assigns a Conditional Access exclusion group.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`CreateEntraIDBreakTheGlass.ps1`](./CreateEntraIDBreakTheGlass.ps1) | Creates emergency Break Glass accounts and applies hardened baseline configuration. |
 
 ## 📄 Script
 
@@ -82,3 +89,9 @@ PLEASE STORE THESE CREDENTIALS SECURELY!
 
 - [Microsoft: Emergency access accounts](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access)
 - [Global Administrator role](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference#global-administrator)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

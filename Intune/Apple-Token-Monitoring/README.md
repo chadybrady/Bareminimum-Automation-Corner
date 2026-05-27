@@ -2,7 +2,14 @@
 
 An **Azure Automation Runbook** that proactively monitors **Apple MDM connector tokens** in Microsoft Intune and sends alerts to a Microsoft Teams channel before they expire.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`applemonitoring.ps1`](./applemonitoring.ps1) | Monitors Apple APNs, VPP, and DEP token expiry for Intune and reports status. |
 
 ## 📄 Script
 
@@ -92,3 +99,16 @@ When a connector is expiring, the script posts a Teams Message Card containing:
 - [Apple DEP / ADE Enrollment](https://learn.microsoft.com/en-us/mem/intune/enrollment/device-enrollment-program-enroll-ios)
 - [Azure Automation Runbooks](https://learn.microsoft.com/en-us/azure/automation/automation-runbook-types)
 - [Teams Incoming Webhooks](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+```powershell
+.\applemonitoring.ps1
+```
+
+## 🛡️ Security Notes
+
+- Store Teams webhook URLs and any automation credentials in secure variables or Key Vault.
+- Prefer managed identities or certificate-based auth for unattended runbooks.
+- Restrict edit access to the Automation Account so alert targets and token checks cannot be tampered with.

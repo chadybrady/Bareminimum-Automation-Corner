@@ -1,4 +1,4 @@
-# 🆘 Break the Glass Accounts
+# 📘 🆘 Break the Glass Accounts
 
 Scripts for creating and configuring **emergency access (Break Glass) accounts** in Microsoft Entra ID. Break Glass accounts are privileged emergency accounts used when normal administrative access is unavailable (e.g., during MFA outages or misconfigured Conditional Access policies).
 
@@ -38,3 +38,12 @@ Scripts for creating and configuring **emergency access (Break Glass) accounts**
 
 - [Microsoft: Manage emergency access accounts](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access)
 - [Break Glass Account Best Practices](https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa#create-emergency-access-accounts)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

@@ -1,8 +1,18 @@
-# ☁️ OneDrive for Business
+# 📘 ☁️ OneDrive for Business
 
 PowerShell scripts for **OneDrive for Business** administration, covering Known Folder Move (KFM) cleanup, old folder remediation, and unlocking locked personal sites.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Detect-OneDriveOldFolders.ps1`](./Detect-OneDriveOldFolders.ps1) | Detects leftover OneDrive .old folders for Intune Proactive Remediation. |
+| [`O4BUnlockLockedPersonalSites.ps1`](./O4BUnlockLockedPersonalSites.ps1) | Unlocks OneDrive personal sites currently set to NoAccess lock state. |
+| [`Remediate-OneDriveOldFolders.ps1`](./Remediate-OneDriveOldFolders.ps1) | Deletes detected OneDrive .old folders under user profiles. |
+| [`Remove-OneDriveKFMCloudFolders.ps1`](./Remove-OneDriveKFMCloudFolders.ps1) | Removes KFM cloud folders from targeted OneDrive accounts via Microsoft Graph. |
 
 ## 📄 Scripts
 
@@ -68,3 +78,16 @@ Unlocks OneDrive for Business personal sites that have been placed in a locked s
 - [OneDrive Known Folder Move](https://learn.microsoft.com/en-us/onedrive/redirect-known-folders)
 - [Intune Proactive Remediations](https://learn.microsoft.com/en-us/mem/intune/fundamentals/remediations)
 - [Manage OneDrive with PowerShell](https://learn.microsoft.com/en-us/onedrive/manage-onedrive-using-powershell)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+```powershell
+.\Detect-OneDriveOldFolders.ps1
+```
+
+## 🛡️ Security Notes
+
+- Pilot detect/remediate scripts with a small Intune device group before broad assignment.
+- Use tenant admin roles only for scripts that require Graph or SharePoint admin operations.
+- Run `Remove-OneDriveKFMCloudFolders.ps1` in test mode first and confirm target scope before live deletion.

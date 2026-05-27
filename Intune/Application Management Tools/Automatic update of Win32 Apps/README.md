@@ -1,9 +1,16 @@
-# Win32 App Update Automation
+# 📘 Win32 App Update Automation
 
 Automated monthly update pipeline for Intune Win32 apps.  
 Combines Azure Automation runbooks, Power Automate flows, and a SharePoint list to detect, approve, and deploy app updates with minimal manual effort.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Check-Win32AppVersions.ps1`](./Check-Win32AppVersions.ps1) | Checks newer Win32 app versions and updates SharePoint approval queue entries. || [`Deploy-Win32AppUpdate.ps1`](./Deploy-Win32AppUpdate.ps1) | Packages or uploads approved Win32 app updates and deploys new content to Intune. |
 
 ## Architecture
 
@@ -56,7 +63,7 @@ Combines Azure Automation runbooks, Power Automate flows, and a SharePoint list 
 
 ---
 
-## Prerequisites
+## ⚙️ Prerequisites
 
 | Resource | Details |
 |---|---|
@@ -340,3 +347,20 @@ Run `winget show <WingetPackageId>` locally, or leave it blank — the first run
 |---|---|---|
 | `Sites.ReadWrite.All` | Both | Read and update SharePoint list items |
 | `DeviceManagementApps.ReadWrite.All` | Deploy only | Create content versions, upload packages to Intune |
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+```powershell
+.\Check-Win32AppVersions.ps1
+```
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.
+
+## 🔗 Related Links
+
+- https://learn.microsoft.com/en-us/mem/intune/fundamentals/what-is-intune

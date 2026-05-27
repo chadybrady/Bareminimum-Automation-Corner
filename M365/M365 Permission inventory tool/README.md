@@ -2,7 +2,14 @@
 
 A **tenant-wide, read-only permissions inventory** script that enumerates all principal-to-resource role assignments across Microsoft 365 services and exports the results to CSV/Excel/JSON.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`M365-Permissions-Inventory.ps1`](./M365-Permissions-Inventory.ps1) | Exports tenant-wide Microsoft 365 permission assignments for review and auditing. |
 
 ## 📄 Script
 
@@ -138,3 +145,9 @@ Each run creates a timestamped subfolder (e.g. `Run-20260428-143000`) containing
 - [PIM Role Assignments](https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-how-to-view-eligibility)
 - [Exchange Online PowerShell](https://learn.microsoft.com/en-us/powershell/exchange/exchange-online-powershell)
 - [ImportExcel module](https://github.com/dfinke/ImportExcel)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.
