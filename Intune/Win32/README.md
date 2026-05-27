@@ -24,3 +24,13 @@ Scripts for managing **Win32 application deployments** in Microsoft Intune, incl
 
 - [Intune Win32 App Management](https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-app-management)
 - [Troubleshoot Win32 App Installations](https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-troubleshoot)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+
+## 🛡️ Security Notes
+
+- Validate package content and detection rules in pilot groups before broad assignment.
+- Restrict write access to package sources, app metadata, and deployment automations.
+- Use change control when replacing existing Win32 content versions to avoid unintended app impact.

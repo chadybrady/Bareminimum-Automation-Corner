@@ -2,7 +2,14 @@
 
 Automates the standard initial deployment of **CodeTwo Email Signatures for Microsoft 365**, including the creation of required security groups in Entra ID and deployment of the CodeTwo Outlook add-in across the tenant.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`CodeTwoFramworkSetup.ps1`](./CodeTwoFramworkSetup.ps1) | Deploys baseline CodeTwo group structure and app setup dependencies in Microsoft 365. |
 
 ## 📄 Script
 
@@ -65,3 +72,9 @@ The script will interactively prompt for:
 
 - [CodeTwo Email Signatures for Microsoft 365](https://www.codetwo.com/email-signatures/office-365/)
 - [Microsoft Integrated Apps Deployment](https://learn.microsoft.com/en-us/microsoft-365/admin/manage/manage-addins-in-the-admin-center)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

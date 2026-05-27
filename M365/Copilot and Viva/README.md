@@ -26,3 +26,12 @@ Scripts for managing **Microsoft Copilot** and **Microsoft Viva** feature availa
 - [Microsoft Viva Overview](https://learn.microsoft.com/en-us/viva/microsoft-viva-overview)
 - [Manage Viva Feature Access](https://learn.microsoft.com/en-us/viva/feature-access-management)
 - [Microsoft Copilot for Microsoft 365](https://learn.microsoft.com/en-us/copilot/microsoft-365/)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

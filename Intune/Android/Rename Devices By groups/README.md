@@ -2,7 +2,14 @@
 
 Bulk renames **Android devices** enrolled in Microsoft Intune to a standardised `Android-<SERIAL>` naming format, based on their **Entra ID device group membership**.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`AndroidRenameByDeviceGroups.ps1`](./AndroidRenameByDeviceGroups.ps1) | Renames Android devices in Intune based on group targeting and serial-based naming. |
 
 ## 📄 Script
 
@@ -84,3 +91,9 @@ Total:       49
 
 - [Intune Device Rename via Graph](https://learn.microsoft.com/en-us/graph/api/intune-devices-manageddevice-setdevicename)
 - [Microsoft Graph Beta Managed Devices](https://learn.microsoft.com/en-us/graph/api/resources/intune-devices-manageddevice)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

@@ -2,7 +2,14 @@
 
 Bulk-disables a configurable set of **Microsoft Viva and Copilot features** across your Microsoft 365 tenant using Exchange Online Management.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`disableVivaFeatures.ps1`](./disableVivaFeatures.ps1) | Disables selected Viva modules and feature surfaces in Microsoft 365. |
 
 ## 📄 Script
 
@@ -72,3 +79,9 @@ The script will:
 
 - [Manage Viva Feature Access Management](https://learn.microsoft.com/en-us/viva/feature-access-management)
 - [ExchangeOnlineManagement Module](https://learn.microsoft.com/en-us/powershell/exchange/exchange-online-powershell-v2)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

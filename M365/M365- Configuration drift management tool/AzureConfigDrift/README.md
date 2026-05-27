@@ -6,7 +6,14 @@ Monitor, baseline, and alert on unauthorised or unintended changes across your M
 
 Supports interactive menu-driven use, fully unattended/scheduled execution, and native Azure Automation Runbook deployment via Managed Identity.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`AzureConfigDrift.ps1`](./AzureConfigDrift.ps1) | Captures configuration snapshots and detects drift across Entra ID and Intune. |
 
 ## 📋 Contents
 
@@ -284,3 +291,15 @@ Contributions, bug reports, and feature requests are welcome:
 - [Conditional Access Overview](https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview)
 - [Intune Security Baselines](https://learn.microsoft.com/en-us/mem/intune/protect/security-baselines)
 - [Microsoft Graph API Permissions Reference](https://learn.microsoft.com/en-us/graph/permissions-reference)
+
+## ⚙️ Prerequisites
+
+- PowerShell 5.1+ (PowerShell 7+ recommended where supported).
+- Install workload modules before execution (for example Microsoft Graph, Microsoft.Entra, ExchangeOnlineManagement, or ImportExcel as required).
+- Use an account with the required Microsoft 365 administrative roles for this operation.
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

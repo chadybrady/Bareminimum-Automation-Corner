@@ -57,3 +57,12 @@ Scripts for deploying and managing **Conditional Access (CA) policies** in Micro
 - [Conditional Access Overview](https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview)
 - [Microsoft Entra CA Policy Templates](https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-migration-mfa)
 - [Sign-in Risk Policies (P2)](https://learn.microsoft.com/en-us/entra/id-protection/concept-identity-protection-policies)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

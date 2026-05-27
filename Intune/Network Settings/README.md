@@ -2,7 +2,14 @@
 
 **Intune Proactive Remediation** scripts for detecting and correcting DNS server configuration on managed Windows devices.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Change-DNSServers.ps1`](./Change-DNSServers.ps1) | Remediation script for Intune that applies approved DNS server settings. || [`Detect-DNSServers.ps1`](./Detect-DNSServers.ps1) | Detection script for Intune remediation that checks DNS server compliance. |
 
 ## 📂 Scripts
 
@@ -49,3 +56,16 @@ These scripts are designed to be deployed as an **Intune Proactive Remediation**
 
 - [Intune Proactive Remediations](https://learn.microsoft.com/en-us/mem/intune/fundamentals/remediations)
 - [Windows DNS Client Configuration](https://learn.microsoft.com/en-us/windows-server/networking/dns/dns-client-architecture)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+```powershell
+.\Change-DNSServers.ps1
+```
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

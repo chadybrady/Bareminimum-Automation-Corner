@@ -28,3 +28,13 @@ Scripts for managing **Android devices** enrolled in Microsoft Intune, including
 
 - [Intune Android Device Management](https://learn.microsoft.com/en-us/mem/intune/enrollment/android-enroll)
 - [Microsoft Graph Beta — Managed Devices](https://learn.microsoft.com/en-us/graph/api/resources/intune-devices-manageddevice)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.

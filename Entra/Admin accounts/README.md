@@ -40,3 +40,7 @@ Scripts for **bulk-provisioning Entra ID administrative accounts**, including st
 - [Microsoft Entra ID Role Assignments](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference)
 - [Privileged Identity Management (PIM)](https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-how-to-add-role-to-user)
 - [ImportExcel module](https://github.com/dfinke/ImportExcel)
+
+## 🚀 Usage
+
+Review script parameters and run in a test environment first.

@@ -2,7 +2,14 @@
 
 Forces a complete **reinstall of a Win32 application** deployed via Microsoft Intune by clearing the associated registry entries, detection rule artifacts, and cached data — without requiring the device to unenroll or re-image.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Win32ForceReinstallApp.ps1`](./Win32ForceReinstallApp.ps1) | Forces Win32 app reinstall by removing local detection artifacts. |
 
 ## 📄 Script
 
@@ -65,3 +72,9 @@ Once complete, Intune will re-evaluate the device on its next check-in and reins
 - [Johan Arwidmark — Force Win32 App Reinstall](https://www.deploymentresearch.com/force-application-reinstall-in-microsoft-intune-win32-apps/)
 - [Rudy Ooms — Retry Failed Win32 App Installation](https://call4cloud.nl/retry-failed-win32app-installation/)
 - [Intune Win32 App Troubleshooting](https://learn.microsoft.com/en-us/mem/intune/apps/apps-win32-troubleshoot)
+
+## 🛡️ Security Notes
+
+- Run with local administrator rights in a controlled maintenance window.
+- Pilot on test devices first to confirm reinstall behavior for the targeted Win32 app.
+- Confirm app assignments and detection logic so devices reinstall only the intended application.

@@ -1,8 +1,15 @@
-# EntraIdChangeDomainAllIdentites
+# 📘 EntraIdChangeDomainAllIdentites
 
 Bulk-changes the primary email domain on all identities in a Microsoft 365 tenant (Entra ID + Exchange Online). Designed for domain migrations or rebranding scenarios.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`EntraIdChangeDomainAllIdentites.ps1`](./EntraIdChangeDomainAllIdentites.ps1) | Bulk-changes primary email domains across supported Entra ID and Exchange Online identities. |
 
 ## What it does
 
@@ -27,7 +34,7 @@ For every object whose primary SMTP address matches the source domain, the scrip
 
 ---
 
-## Requirements
+## ⚙️ Prerequisites
 
 ### PowerShell modules
 
@@ -51,7 +58,7 @@ Installed automatically if missing (current user scope):
 
 ---
 
-## Usage
+## 🚀 Usage
 
 ```powershell
 # Dry run — shows what would change, makes no changes
@@ -77,7 +84,7 @@ Installed automatically if missing (current user scope):
 
 ---
 
-## How to run
+## 🚀 Usage
 
 1. Open PowerShell 5.1 or later
 2. Run the script with `-WhatIf` first and review the output
@@ -104,9 +111,14 @@ DomainChange_contoso.de_to_contoso.com_20260302_210000.log
 
 ---
 
-## Notes
+## 🛡️ Security Notes
 
 - The script uses `ConsistencyLevel: eventual` for Microsoft Graph queries — required for `endsWith` filters to work correctly
 - The confirmation prompt is skipped in `-WhatIf` mode
 - Guest accounts and service principals are not in scope
 - Running the script requires an interactive login to both Microsoft Graph and Exchange Online
+
+## 🔗 Related Links
+
+- https://learn.microsoft.com/en-us/entra/fundamentals/
+- https://learn.microsoft.com/en-us/powershell/entra-powershell/

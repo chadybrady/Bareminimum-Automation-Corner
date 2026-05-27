@@ -1,10 +1,14 @@
-# CA Creation Tools — Interactive Baseline v2
+# 📘 CA Creation Tools — Interactive Baseline v2
 
 An interactive, menu-driven PowerShell tool for creating a **comprehensive Conditional Access policy baseline** in Microsoft Entra ID. Designed for operators who want full control over every configuration decision during deployment.
 
 ---
 
-## Script
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Create-CABaselinev2.ps1`](./Create-CABaselinev2.ps1) | Interactive tool that creates a customizable Conditional Access baseline with policy-by-policy control. |
 
 ### `Create-CABaselinev2.ps1`
 
@@ -36,7 +40,7 @@ The script supports:
 
 ---
 
-## Prerequisites
+## ⚙️ Prerequisites
 
 - **PowerShell 7.0 or later** (required — script uses `#Requires -Version 7.0`)
 - `Microsoft.Graph` PowerShell SDK modules:
@@ -52,7 +56,7 @@ The script supports:
 
 ---
 
-## Usage
+## 🚀 Usage
 
 ```powershell
 .\Create-CABaselinev2.ps1
@@ -115,7 +119,7 @@ The script creates one security group per policy for emergency exclusions:
 
 ---
 
-## Best Practices
+## 🛡️ Security Notes
 
 1. Always deploy policies in **Report-Only** mode first (except `GLB-003` which is enabled by default).
 2. Monitor **Sign-in Logs** for at least 1–2 weeks before switching to Enforced.
@@ -124,7 +128,7 @@ The script creates one security group per policy for emergency exclusions:
 
 ---
 
-## Related Links
+## 🔗 Related Links
 
 - [Conditional Access: Report-Only Mode](https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-report-only)
 - [CA Policy Design Guidance](https://learn.microsoft.com/en-us/entra/identity/conditional-access/plan-conditional-access)

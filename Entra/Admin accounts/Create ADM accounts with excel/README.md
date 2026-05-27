@@ -2,7 +2,14 @@
 
 Bulk-creates **Entra ID admin accounts** from an Excel input file. Each account is provisioned with a structured UPN, a cryptographically secure password, optional group memberships, and optional permanent or PIM-eligible Entra role assignments.
 
+
 ---
+
+## 📂 Contents
+
+| Item | Description |
+|---|---|
+| [`Create-AdminUsers.ps1`](./Create-AdminUsers.ps1) | Creates Entra admin accounts from an Excel input file, including role and group assignment support. || [`_GenerateTemplate.ps1`](./_GenerateTemplate.ps1) | Generates the Excel template used as input for bulk admin account creation. |
 
 ## 📄 Script
 
@@ -161,3 +168,9 @@ The results file `AdminUsers-Results-<yyyyMMdd-HHmmss>.xlsx` is saved to the **s
 - [Microsoft Graph PowerShell SDK](https://learn.microsoft.com/en-us/powershell/microsoftgraph/overview)
 - [ImportExcel module](https://github.com/dfinke/ImportExcel)
 - [Entra ID built-in roles reference](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference)
+
+## 🛡️ Security Notes
+
+- Use least-privilege permissions and avoid storing credentials in plaintext.
+- Validate results in test/report-only mode before production rollout.
+- Treat exported reports as potentially sensitive tenant data.
