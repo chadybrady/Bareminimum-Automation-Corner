@@ -8,7 +8,8 @@
   Entra ID : Conditional Access · Directory roles + PIM · Enterprise apps + OAuth2 grants
              · Named locations + auth methods policy + authorization policy
   Intune   : Device configuration · Compliance · App protection · Scripts + health scripts
-             · Enrollment configurations · App assignments
+             · Enrollment configurations · App assignments · Security baselines
+             · Feature update profiles · Quality update profiles
 
 .MODES
   Snapshot      – Collect current state from all selected endpoints and export to JSON
@@ -111,8 +112,8 @@ param(
   [string]$ClientId,
 
   # App Registration client secret. Required when -AuthMethod ClientCredentials.
-  # Tip: pass via an environment variable (e.g. $env:APP_SECRET) to avoid plain-text exposure.
-  [string]$ClientSecret,
+  # Pass as a SecureString, e.g.: -ClientSecret (ConvertTo-SecureString $env:APP_SECRET -AsPlainText -Force)
+  [SecureString]$ClientSecret,
 
   # When specified with CheckDrift, fetches Intune and Entra audit logs to populate
   # the ModifiedBy field in drift rows. Requires AuditLog.Read.All consent.
@@ -392,9 +393,6 @@ function Get-EntraAuthMethodsSnapshot {
 
   $authzPolicy = $null
   try { $authzPolicy = Invoke-GraphSingle '/v1.0/policies/authorizationPolicy' } catch { Write-Warn "Authorization policy: $_" }
-
-  $mfaRegistration = $null
-  try { $mfaRegistration = Invoke-GraphSingle '/v1.0/reports/credentialUserRegistrationDetails' } catch {}
 
   return [pscustomobject]@{
     id                    = 'EntraAuthMethods'
@@ -1086,8 +1084,7 @@ function Get-StorageContext {
   if ($AuthMethod -eq 'ClientCredentials') {
     # ── Service principal (client secret) ─────────────────────────────────────
     Write-Info "Connecting to storage account '$SaName' as service principal..."
-    $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
-    $spCred = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+    $spCred = New-Object System.Management.Automation.PSCredential($ClientId, $ClientSecret)
     Connect-AzAccount -ServicePrincipal -TenantId $TenantId -Credential $spCred | Out-Null
     return New-AzStorageContext -StorageAccountName $SaName -UseConnectedAccount
   }
@@ -1102,11 +1099,13 @@ function Get-StorageContext {
 
   switch ($authChoice.Trim()) {
     '1' {
-      $sas = Read-Host '  SAS token (starts with ?sv=...)'
+      $sasSecure = Read-Host '  SAS token (starts with ?sv=...)' -AsSecureString
+      $sas = [System.Net.NetworkCredential]::new('', $sasSecure).Password
       return New-AzStorageContext -StorageAccountName $SaName -SasToken $sas
     }
     '2' {
-      $key = Read-Host '  Storage account key'
+      $keySecure = Read-Host '  Storage account key' -AsSecureString
+      $key = [System.Net.NetworkCredential]::new('', $keySecure).Password
       return New-AzStorageContext -StorageAccountName $SaName -StorageAccountKey $key
     }
     default {
@@ -1163,30 +1162,31 @@ function Upload-ToBlob {
 # ─── Interactive Menus ───────────────────────────────────────────────────────
 
 function Select-Mode {
-  Write-Out ''
-  Write-Out '  What would you like to do?' -Color Yellow
-  Write-Out '    1. Take snapshot & export'
-  Write-Out '    2. Set current state as baseline'
-  Write-Out '    3. Check drift against a baseline'
-  Write-Out '    4. List available baselines'
-  Write-Out '    5. Exit'
-  Write-Out ''
-  $choice = Read-Host '  Choice [1-5]'
-  switch ($choice.Trim()) {
-    '1' { return @{ Mode = 'Snapshot';      IncludeAudit = $false } }
-    '2' { return @{ Mode = 'SetBaseline';   IncludeAudit = $false } }
-    '3' {
-      Write-Out ''
-      $auditChoice = Read-Host '  Include who made each change? Requires AuditLog.Read.All consent. [y/N]'
-      return @{ Mode = 'CheckDrift'; IncludeAudit = ($auditChoice.Trim().ToUpper() -eq 'Y') }
+  do {
+    Write-Out ''
+    Write-Out '  What would you like to do?' -Color Yellow
+    Write-Out '    1. Take snapshot & export'
+    Write-Out '    2. Set current state as baseline'
+    Write-Out '    3. Check drift against a baseline'
+    Write-Out '    4. List available baselines'
+    Write-Out '    5. Exit'
+    Write-Out ''
+    $choice = Read-Host '  Choice [1-5]'
+    switch ($choice.Trim()) {
+      '1' { return @{ Mode = 'Snapshot';      IncludeAudit = $false } }
+      '2' { return @{ Mode = 'SetBaseline';   IncludeAudit = $false } }
+      '3' {
+        Write-Out ''
+        $auditChoice = Read-Host '  Include who made each change? Requires AuditLog.Read.All consent. [y/N]'
+        return @{ Mode = 'CheckDrift'; IncludeAudit = ($auditChoice.Trim().ToUpper() -eq 'Y') }
+      }
+      '4' { return @{ Mode = 'ListBaselines'; IncludeAudit = $false } }
+      '5' { return @{ Mode = 'Exit';          IncludeAudit = $false } }
+      default {
+        Write-Warn "Invalid choice '$choice'. Please enter 1-5."
+      }
     }
-    '4' { return @{ Mode = 'ListBaselines'; IncludeAudit = $false } }
-    '5' { return @{ Mode = 'Exit';          IncludeAudit = $false } }
-    default {
-      Write-Warn "Invalid choice '$choice'. Please enter 1-5."
-      return Select-Mode
-    }
-  }
+  } while ($true)
 }
 
 function Select-Endpoints {
@@ -1198,11 +1198,11 @@ function Select-Endpoints {
     $i++
   }
   Write-Out ''
-  $input = Read-Host '  Endpoints [default: all]'
-  if ([string]::IsNullOrWhiteSpace($input)) { return $script:AllEndpoints }
+  $userSelection = Read-Host '  Endpoints [default: all]'
+  if ([string]::IsNullOrWhiteSpace($userSelection)) { return $script:AllEndpoints }
 
   $selected = [System.Collections.Generic.List[string]]::new()
-  foreach ($part in ($input -split ',')) {
+  foreach ($part in ($userSelection -split ',')) {
     $idx = [int]($part.Trim()) - 1
     if ($idx -ge 0 -and $idx -lt $script:AllEndpoints.Count) {
       [void]$selected.Add($script:AllEndpoints[$idx])
@@ -1293,8 +1293,7 @@ try {
     if (-not $TenantId)     { throw '-TenantId is required when -AuthMethod ClientCredentials is used.' }
     if (-not $ClientId)     { throw '-ClientId is required when -AuthMethod ClientCredentials is used.' }
     if (-not $ClientSecret) { throw '-ClientSecret is required when -AuthMethod ClientCredentials is used.' }
-    $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
-    $appCred = New-Object System.Management.Automation.PSCredential($ClientId, $secureSecret)
+    $appCred = New-Object System.Management.Automation.PSCredential($ClientId, $ClientSecret)
     Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -ClientSecretCredential $appCred -NoWelcome
   } elseif ($AuthMethod -eq 'DeviceCode') {
     # ── Device code – user auth, no browser required ──────────────────────────
