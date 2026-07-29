@@ -1,6 +1,6 @@
 # 🤖 Copilot & Viva
 
-Scripts for managing **Microsoft Copilot** and **Microsoft Viva** feature availability across your Microsoft 365 tenant.
+> Manage Microsoft Copilot and Viva feature availability across a Microsoft 365 tenant.
 
 ---
 

@@ -1,7 +1,6 @@
-# 📘 Win32 App Update Automation
+# 🔄 Win32 App Update Automation
 
-Automated monthly update pipeline for Intune Win32 apps.  
-Combines Azure Automation runbooks, Power Automate flows, and a SharePoint list to detect, approve, and deploy app updates with minimal manual effort.
+> Automate Intune Win32 application detection, approval, packaging, and deployment with Azure Automation, Power Automate, SharePoint, and Blob Storage.
 
 
 ---
@@ -10,9 +9,10 @@ Combines Azure Automation runbooks, Power Automate flows, and a SharePoint list 
 
 | Item | Description |
 |---|---|
-| [`Check-Win32AppVersions.ps1`](./Check-Win32AppVersions.ps1) | Checks newer Win32 app versions and updates SharePoint approval queue entries. || [`Deploy-Win32AppUpdate.ps1`](./Deploy-Win32AppUpdate.ps1) | Packages or uploads approved Win32 app updates and deploys new content to Intune. |
+| [`Check-Win32AppVersions.ps1`](./Check-Win32AppVersions.ps1) | Checks newer Win32 app versions and updates SharePoint approval queue entries. |
+| [`Deploy-Win32AppUpdate.ps1`](./Deploy-Win32AppUpdate.ps1) | Packages or uploads approved Win32 app updates and deploys new content to Intune. |
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -113,7 +113,7 @@ Install these modules in the Automation Account (**Modules → Browse gallery**)
 
 ---
 
-## SharePoint List Setup
+## 📋 SharePoint List Setup
 
 Create a list named **`Win32-App-Updates`** with the following columns:
 
@@ -140,7 +140,7 @@ Create a list named **`Win32-App-Updates`** with the following columns:
 
 ---
 
-## Azure Blob Storage Setup
+## ☁️ Azure Blob Storage Setup
 
 1. Create a container in your storage account, e.g. `win32-packages`
 2. Create two folders inside it:
@@ -201,7 +201,7 @@ GET https://graph.microsoft.com/v1.0/sites/{siteId}/lists?$filter=displayName eq
 
 ---
 
-## Power Automate Flows
+## 🔁 Power Automate Flows
 
 ### Flow 1a — Monthly Winget Check + Approval
 
@@ -270,7 +270,7 @@ GET https://graph.microsoft.com/v1.0/sites/{siteId}/lists?$filter=displayName eq
 
 ---
 
-## Adding a New App
+## ➕ Adding a New App
 
 ### Winget-sourced app
 
@@ -304,7 +304,7 @@ Run `winget show <WingetPackageId>` locally, or leave it blank — the first run
 
 ---
 
-## Troubleshooting
+## 🧰 Troubleshooting
 
 ### Approval card not appearing in Teams
 
@@ -341,7 +341,7 @@ Run `winget show <WingetPackageId>` locally, or leave it blank — the first run
 
 ---
 
-## Graph API Permissions Reference
+## 🔐 Graph API Permissions Reference
 
 | Permission | Runbook | Purpose |
 |---|---|---|

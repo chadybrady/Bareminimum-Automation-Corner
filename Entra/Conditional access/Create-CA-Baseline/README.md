@@ -1,6 +1,6 @@
 # 🔒 Create CA Baseline
 
-Creates a standard **Conditional Access policy baseline** (CA001–CA017) in Microsoft Entra ID using the `Microsoft.Entra` and `Microsoft.Graph` PowerShell modules.
+> Deploy a predefined Conditional Access policy baseline in Microsoft Entra ID.
 
 
 ---

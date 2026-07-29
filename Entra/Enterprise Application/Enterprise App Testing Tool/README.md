@@ -1,6 +1,6 @@
 # 🧪 Enterprise App Testing Tool
 
-Generates a comprehensive **HTML governance report** for all Enterprise Applications (service principals) in Microsoft Entra ID. Designed to help IT administrators assess application security posture, identify stale or risky apps, and improve application lifecycle management.
+> Assess Microsoft Entra enterprise applications and generate an HTML governance report covering ownership, credentials, usage, and permissions.
 
 
 ---

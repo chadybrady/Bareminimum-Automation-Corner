@@ -1,6 +1,6 @@
 # 🔁 Win32 Force Reinstall App
 
-Forces a complete **reinstall of a Win32 application** deployed via Microsoft Intune by clearing the associated registry entries, detection rule artifacts, and cached data — without requiring the device to unenroll or re-image.
+> Force an Intune Win32 application to reinstall by clearing its evaluation, registry, detection, and cache artifacts.
 
 
 ---

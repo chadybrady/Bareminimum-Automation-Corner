@@ -1,6 +1,6 @@
 # 🔑 CodeTwo Standard Setup Tool
 
-Automates the standard initial deployment of **CodeTwo Email Signatures for Microsoft 365**, including the creation of required security groups in Entra ID and deployment of the CodeTwo Outlook add-in across the tenant.
+> Automates the standard initial deployment of **CodeTwo Email Signatures for Microsoft 365**, including required Entra ID security groups and the CodeTwo Outlook add-in.
 
 
 ---

@@ -1,6 +1,6 @@
 # 🔍 Enterprise App Permission & Secret Monitoring
 
-An **Azure Automation runbook** that monitors Enterprise Application (service principal) client secrets and Apple-style connector expiry in Microsoft Intune, sending alerts to a Microsoft Teams channel before credentials expire.
+> Monitor enterprise-application credentials from Azure Automation and alert Microsoft Teams before secrets expire.
 
 
 ---

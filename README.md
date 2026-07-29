@@ -5,7 +5,7 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/chadybrady/Bareminimum-Automation-Corner?style=flat-square)
 ![PowerShell](https://img.shields.io/badge/language-PowerShell-5391FE?logo=powershell&logoColor=white&style=flat-square)
 
-> A practical collection of PowerShell automation tools for Microsoft 365 administrators, focused on Entra ID, Intune, OneDrive, enterprise app governance, and tenant operations. Each folder groups scripts by workload so you can quickly find deployment, monitoring, and remediation utilities.
+> A practical collection of PowerShell automation tools for Microsoft 365 administrators. Each workload folder contains focused deployment, monitoring, auditing, and remediation utilities with its own prerequisites and safety guidance.
 
 ---
 
@@ -17,7 +17,7 @@
 | [`Entra/`](./Entra/) | Entra ID automation: admin account provisioning, break-glass workflows, Conditional Access, domain changes, and enterprise app governance. |
 | [`Excel/`](./Excel/) | Utility tooling for CSV-to-Excel conversion and report formatting. |
 | [`Intune/`](./Intune/) | Intune administration scripts for Android, Apple tokens, Win32 apps, DNS remediations, and configuration validation. |
-| [`M365/`](./M365/) | Microsoft 365 automation for Viva/Copilot controls, permissions inventory, config drift checks, and OneDrive operations. |
+| [`M365/`](./M365/) | Microsoft 365 automation for groups, Viva/Copilot, permissions, configuration drift, OneDrive, and SharePoint. |
 
 ---
 
@@ -105,3 +105,4 @@ This repository is provided as-is for educational and operational use. Validate 
 | [`M365/Onedrive/O4BUnlockLockedPersonalSites.ps1`](./M365/Onedrive/O4BUnlockLockedPersonalSites.ps1) | Unlocks OneDrive personal sites currently set to NoAccess lock state. |
 | [`M365/Onedrive/Remediate-OneDriveOldFolders.ps1`](./M365/Onedrive/Remediate-OneDriveOldFolders.ps1) | Deletes detected OneDrive .old folders under user profiles. |
 | [`M365/Onedrive/Remove-OneDriveKFMCloudFolders.ps1`](./M365/Onedrive/Remove-OneDriveKFMCloudFolders.ps1) | Removes KFM cloud folders from targeted OneDrive accounts via Microsoft Graph. |
+| [`M365/Sharepoint/Repair-SharePointWelcomePage.ps1`](./M365/Sharepoint/Repair-SharePointWelcomePage.ps1) | Restores or recreates a modern SharePoint home page and assigns it as the site welcome page. |

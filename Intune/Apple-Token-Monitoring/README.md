@@ -1,6 +1,6 @@
 # 🍎 Apple Token Monitoring
 
-An **Azure Automation Runbook** that proactively monitors **Apple MDM connector tokens** in Microsoft Intune and sends alerts to a Microsoft Teams channel before they expire.
+> Monitor Apple MDM, VPP, and DEP connector expiry in Microsoft Intune and notify Microsoft Teams.
 
 
 ---

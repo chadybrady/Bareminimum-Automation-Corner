@@ -1,6 +1,6 @@
 # 🔒 Conditional Access
 
-Scripts for deploying and managing **Conditional Access (CA) policies** in Microsoft Entra ID. Includes tools for creating a complete security baseline and an interactive v2 CA creation tool.
+> Deploy and manage Microsoft Entra Conditional Access baselines with predefined or interactive policy creation.
 
 ---
 

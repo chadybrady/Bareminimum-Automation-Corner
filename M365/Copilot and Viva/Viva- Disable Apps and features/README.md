@@ -1,6 +1,6 @@
 # 🚫 Viva — Disable Apps and Features
 
-Bulk-disables a configurable set of **Microsoft Viva and Copilot features** across your Microsoft 365 tenant using Exchange Online Management.
+> Disable selected Microsoft Viva and Copilot features across a tenant with Exchange Online and Teams administration.
 
 
 ---

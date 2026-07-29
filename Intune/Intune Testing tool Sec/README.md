@@ -1,6 +1,6 @@
 # 🔬 Intune Configuration Testing Tool
 
-A comprehensive **security and configuration audit script** for Microsoft Intune. Validates your Intune deployment against best practices and generates a detailed assessment report.
+> Audit Microsoft Intune security and configuration against baseline checks and generate a detailed assessment report.
 
 
 ---

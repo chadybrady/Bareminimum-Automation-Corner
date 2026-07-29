@@ -1,8 +1,6 @@
-# 🔄 AzureConfigDrift.ps1
+# 🔄 Azure Configuration Drift
 
-> **Bareminimum Automation** — Configuration drift detection for Microsoft Entra ID and Microsoft Intune
-
-Monitor, baseline, and alert on unauthorised or unintended changes across your Microsoft 365 tenant. The script works in three stages: capture a snapshot of the current state, promote a snapshot to a signed-off baseline, then compare future snapshots against that baseline to surface any drift.
+> Capture Microsoft Entra ID and Intune configuration, promote approved snapshots to baselines, and report unauthorized or unintended drift.
 
 Supports interactive menu-driven use, fully unattended/scheduled execution, and native Azure Automation Runbook deployment via Managed Identity.
 
@@ -86,7 +84,7 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 
 ---
 
-## 🔧 Prerequisites
+## ⚙️ Prerequisites
 
 ### PowerShell
 
@@ -284,6 +282,16 @@ Contributions, bug reports, and feature requests are welcome:
 
 ---
 
+## 🛡️ Security Notes
+
+- Prefer managed identity for unattended Azure Automation runs.
+- Store client secrets in a secure secret store and pass them as `SecureString` values.
+- Grant only the Microsoft Graph read permissions required by the selected endpoints.
+- Protect snapshots, baselines, reports, and audit metadata as tenant-sensitive information.
+- Review detected drift before making any remediation changes outside this tool.
+
+---
+
 ## 🔗 Related Links
 
 - [Microsoft Graph PowerShell Authentication](https://learn.microsoft.com/en-us/powershell/microsoftgraph/authentication-commands)
@@ -291,15 +299,3 @@ Contributions, bug reports, and feature requests are welcome:
 - [Conditional Access Overview](https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview)
 - [Intune Security Baselines](https://learn.microsoft.com/en-us/mem/intune/protect/security-baselines)
 - [Microsoft Graph API Permissions Reference](https://learn.microsoft.com/en-us/graph/permissions-reference)
-
-## ⚙️ Prerequisites
-
-- PowerShell 5.1+ (PowerShell 7+ recommended where supported).
-- Install workload modules before execution (for example Microsoft Graph, Microsoft.Entra, ExchangeOnlineManagement, or ImportExcel as required).
-- Use an account with the required Microsoft 365 administrative roles for this operation.
-
-## 🛡️ Security Notes
-
-- Use least-privilege permissions and avoid storing credentials in plaintext.
-- Validate results in test/report-only mode before production rollout.
-- Treat exported reports as potentially sensitive tenant data.

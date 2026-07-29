@@ -1,6 +1,6 @@
-# 📘 🆘 Create Break Glass Accounts
+# 🆘 Create Break-Glass Accounts
 
-Creates two **emergency access (Break Glass) accounts** in Microsoft Entra ID, assigns them the **Global Administrator** role, and optionally creates or assigns a Conditional Access exclusion group.
+> Create two emergency access accounts, assign Global Administrator, and optionally configure a Conditional Access exclusion group.
 
 
 ---

@@ -1,6 +1,6 @@
 # 👤 Admin Accounts
 
-Scripts for **bulk-provisioning Entra ID administrative accounts**, including structured UPN generation, secure password creation, group memberships, permanent Entra role assignments, and PIM-eligible role assignments — all driven from an Excel input file.
+> Bulk-provision Entra ID administrative accounts from Excel with structured UPNs, group memberships, permanent roles, and PIM-eligible assignments.
 
 ---
 

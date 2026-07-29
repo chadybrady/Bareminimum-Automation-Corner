@@ -1,6 +1,6 @@
-# 📘 ☁️ OneDrive for Business
+# ☁️ OneDrive for Business
 
-PowerShell scripts for **OneDrive for Business** administration, covering Known Folder Move (KFM) cleanup, old folder remediation, and unlocking locked personal sites.
+> Administer OneDrive for Business with Known Folder Move cleanup, local remediation, and personal-site recovery tools.
 
 
 ---

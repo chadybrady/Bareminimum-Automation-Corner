@@ -1,6 +1,6 @@
 # 📊 Excel Utilities
 
-PowerShell scripts for **Excel file manipulation and conversion**.
+> PowerShell utilities for converting and formatting spreadsheet data.
 
 
 ---

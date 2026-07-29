@@ -1,6 +1,6 @@
-# 📘 CA Creation Tools — Interactive Baseline v2
+# 🔐 Conditional Access Baseline v2
 
-An interactive, menu-driven PowerShell tool for creating a **comprehensive Conditional Access policy baseline** in Microsoft Entra ID. Designed for operators who want full control over every configuration decision during deployment.
+> Interactively build a comprehensive Microsoft Entra Conditional Access baseline with policy-by-policy control.
 
 ---
 
@@ -66,7 +66,7 @@ The script is fully interactive — no parameters required. You will be guided t
 
 ---
 
-## Policies Available
+## 📋 Policies Available
 
 ### Foundation (always included)
 
@@ -107,7 +107,7 @@ The script is fully interactive — no parameters required. You will be guided t
 
 ---
 
-## Exclusion Groups
+## 👥 Exclusion Groups
 
 The script creates one security group per policy for emergency exclusions:
 

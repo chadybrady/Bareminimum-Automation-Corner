@@ -1,6 +1,6 @@
 # 🏢 Enterprise Applications
 
-Scripts for monitoring, testing, and governing **Enterprise Applications (Service Principals)** in Microsoft Entra ID.
+> Monitor, test, and govern Microsoft Entra enterprise applications and service principals.
 
 ---
 

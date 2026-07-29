@@ -1,6 +1,6 @@
 # 📱 Intune
 
-PowerShell scripts for managing **Microsoft Intune** device management operations. This section covers Android device management, Apple connector monitoring, Win32 app deployment, network configuration, and Intune configuration testing.
+> PowerShell tools for Microsoft Intune device management, application lifecycle automation, monitoring, remediation, and security assessment.
 
 ---
 

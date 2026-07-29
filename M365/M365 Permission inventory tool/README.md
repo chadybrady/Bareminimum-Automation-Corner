@@ -1,6 +1,6 @@
 # 🔐 M365 Permissions Inventory Tool
 
-A **tenant-wide, read-only permissions inventory** script that enumerates all principal-to-resource role assignments across Microsoft 365 services and exports the results to CSV/Excel/JSON.
+> Produce a tenant-wide, read-only inventory of Microsoft 365 permissions and export the results to CSV, Excel, and JSON.
 
 
 ---

@@ -1,6 +1,6 @@
 # 👤 Create Admin Users from Excel
 
-Bulk-creates **Entra ID admin accounts** from an Excel input file. Each account is provisioned with a structured UPN, a cryptographically secure password, optional group memberships, and optional permanent or PIM-eligible Entra role assignments.
+> Bulk-create **Entra ID admin accounts** from Excel with secure passwords, structured UPNs, group memberships, and permanent or PIM-eligible role assignments.
 
 
 ---
@@ -9,7 +9,8 @@ Bulk-creates **Entra ID admin accounts** from an Excel input file. Each account 
 
 | Item | Description |
 |---|---|
-| [`Create-AdminUsers.ps1`](./Create-AdminUsers.ps1) | Creates Entra admin accounts from an Excel input file, including role and group assignment support. || [`_GenerateTemplate.ps1`](./_GenerateTemplate.ps1) | Generates the Excel template used as input for bulk admin account creation. |
+| [`Create-AdminUsers.ps1`](./Create-AdminUsers.ps1) | Creates Entra admin accounts from an Excel input file, including role and group assignment support. |
+| [`_GenerateTemplate.ps1`](./_GenerateTemplate.ps1) | Generates the Excel template used as input for bulk admin account creation. |
 
 ## 📄 Script
 

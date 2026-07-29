@@ -1,6 +1,6 @@
 # 🔐 Entra ID
 
-PowerShell scripts for managing and securing **Microsoft Entra ID** (formerly Azure Active Directory). This section covers emergency access accounts, Conditional Access policy baselines, and Enterprise Application governance.
+> PowerShell tools for managing and securing **Microsoft Entra ID**, including identity provisioning, emergency access, Conditional Access, domain migration, and application governance.
 
 ---
 

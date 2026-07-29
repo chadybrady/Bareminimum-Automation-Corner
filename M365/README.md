@@ -1,6 +1,6 @@
-# 📘 ☁️ Microsoft 365
+# ☁️ Microsoft 365
 
-PowerShell scripts for managing **Microsoft 365** workloads including Viva/Copilot feature management and OneDrive for Business administration.
+> PowerShell tools for administering Microsoft 365 workloads, permissions, configuration, collaboration, and content services.
 
 ---
 
@@ -12,8 +12,8 @@ PowerShell scripts for managing **Microsoft 365** workloads including Viva/Copil
 | [`Groups/`](./Groups/) | Create Microsoft 365 groups with interactive Entra-based behavior controls (welcome email and SharePoint provisioning options) |
 | [`M365 Permission inventory tool/`](./M365%20Permission%20inventory%20tool/) | Tenant-wide, read-only permissions inventory across Entra roles, enterprise apps, OAuth2 grants, Teams, SharePoint/OneDrive, Exchange, distribution groups, Conditional Access, and PIM |
 | [`M365- Configuration drift management tool/`](./M365-%20Configuration%20drift%20management%20tool/) | Snapshot, baseline, and drift-detection tool covering Entra ID (CA, roles, apps, auth methods) and Intune (device config, compliance, scripts, app assignments, and more) |
-| [`Purview Information Protection Baseline Audit/`](./Purview%20Information%20Protection%20Baseline%20Audit/) | Read-only Purview / Microsoft 365 Information Protection baseline audit for labels, DLP, sharing, and retention |
 | [`Onedrive/`](./Onedrive/) | OneDrive for Business maintenance scripts: KFM cleanup, folder remediation, and locked site unlocking |
+| [`Sharepoint/`](./Sharepoint/) | Repair and maintenance tools for SharePoint Online sites |
 
 ---
 
@@ -25,6 +25,7 @@ PowerShell scripts for managing **Microsoft 365** workloads including Viva/Copil
 - `MicrosoftTeams` module (for Viva feature management)
 - SharePoint / OneDrive Administrator role (for OneDrive scripts)
 - Exchange Administrator role (for Viva feature management)
+- Site-level SharePoint permissions and `PnP.PowerShell` for SharePoint repair tools
 
 ---
 

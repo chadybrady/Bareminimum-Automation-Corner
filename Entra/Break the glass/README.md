@@ -1,6 +1,6 @@
-# 📘 🆘 Break the Glass Accounts
+# 🆘 Break-Glass Accounts
 
-Scripts for creating and configuring **emergency access (Break Glass) accounts** in Microsoft Entra ID. Break Glass accounts are privileged emergency accounts used when normal administrative access is unavailable (e.g., during MFA outages or misconfigured Conditional Access policies).
+> Create and secure emergency access accounts for situations where normal administrative access is unavailable.
 
 ---
 

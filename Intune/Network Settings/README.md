@@ -1,6 +1,6 @@
 # 🌐 Network Settings
 
-**Intune Proactive Remediation** scripts for detecting and correcting DNS server configuration on managed Windows devices.
+> Detect and remediate DNS server configuration on managed Windows devices with Intune Remediations.
 
 
 ---
@@ -9,7 +9,8 @@
 
 | Item | Description |
 |---|---|
-| [`Change-DNSServers.ps1`](./Change-DNSServers.ps1) | Remediation script for Intune that applies approved DNS server settings. || [`Detect-DNSServers.ps1`](./Detect-DNSServers.ps1) | Detection script for Intune remediation that checks DNS server compliance. |
+| [`Detect-DNSServers.ps1`](./Detect-DNSServers.ps1) | Detection script for Intune that checks DNS server compliance. |
+| [`Change-DNSServers.ps1`](./Change-DNSServers.ps1) | Remediation script for Intune that applies approved DNS server settings. |
 
 ## 📂 Scripts
 

@@ -1,6 +1,6 @@
 # 🤖 Android Device Management
 
-Scripts for managing **Android devices** enrolled in Microsoft Intune, including automated bulk device renaming.
+> Manage Android devices enrolled in Microsoft Intune, including group-targeted bulk renaming.
 
 ---
 

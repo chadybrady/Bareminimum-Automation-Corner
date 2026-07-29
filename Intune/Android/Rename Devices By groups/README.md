@@ -1,6 +1,6 @@
 # 🤖 Rename Android Devices by Group
 
-Bulk renames **Android devices** enrolled in Microsoft Intune to a standardised `Android-<SERIAL>` naming format, based on their **Entra ID device group membership**.
+> Rename Intune-managed Android devices to `Android-<SERIAL>` based on Microsoft Entra group membership.
 
 
 ---

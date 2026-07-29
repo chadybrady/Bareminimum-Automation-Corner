@@ -1,6 +1,6 @@
 # 🔄 M365 Configuration Drift Management
 
-PowerShell tooling for **detecting and reporting configuration drift** across Microsoft Entra ID and Intune. Snapshot your tenant's security and compliance settings, promote a snapshot to a baseline, and alert on any changes that deviate from the approved configuration.
+> Detect and report configuration drift across Microsoft Entra ID and Intune by comparing tenant snapshots with approved baselines.
 
 ---
 

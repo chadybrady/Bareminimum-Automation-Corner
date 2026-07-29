@@ -1,6 +1,6 @@
 # 📧 CodeTwo
 
-Scripts and tools for automating the deployment and standard configuration of **CodeTwo Email Signatures for Microsoft 365** within a tenant.
+> Scripts and tools for automating the deployment and standard configuration of **CodeTwo Email Signatures for Microsoft 365** within a tenant.
 
 ---
 

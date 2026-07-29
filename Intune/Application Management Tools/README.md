@@ -1,6 +1,6 @@
 # 📦 Application Management Tools
 
-Scripts and pipelines for managing the **lifecycle of applications deployed through Microsoft Intune**, including automated version detection, approval workflows, and Win32 app updates.
+> Manage the lifecycle of Microsoft Intune applications with version detection, approval workflows, and automated Win32 updates.
 
 ---
 

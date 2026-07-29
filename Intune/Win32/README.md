@@ -1,6 +1,6 @@
 # 📦 Win32 App Management
 
-Scripts for managing **Win32 application deployments** in Microsoft Intune, including tools to force-reinstall apps that have failed to install correctly.
+> Diagnose and repair Microsoft Intune Win32 application deployments on managed Windows devices.
 
 ---
 
