@@ -30,7 +30,7 @@
     .\Test-EnterpriseApplications.ps1 -OutputPath "C:\\Reports" -NamePattern "^(APP|ENT)-[A-Z0-9-]+$"
 
 .NOTES
-    Author: Bareminimum Solutions
+    Author: Microsoft 365 Administration
     Date: October 16, 2025
     Requires: Microsoft.Graph PowerShell modules
 #>
@@ -631,7 +631,7 @@ function Generate-HTMLReport {
 
     $html += @"
         <div class="footer">
-            Bareminimum Solutions &middot; Enterprise Application Governance Framework &middot; $([DateTime]::UtcNow.ToString('yyyy'))
+            Microsoft 365 Administration &middot; Enterprise Application Governance Framework &middot; $([DateTime]::UtcNow.ToString('yyyy'))
         </div>
     </div>
 </body>

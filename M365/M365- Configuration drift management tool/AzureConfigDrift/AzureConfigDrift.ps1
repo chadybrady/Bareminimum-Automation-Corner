@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
   Azure Configuration Drift Management Tool – snapshot, baseline, and drift detection
-  across Entra ID and Intune endpoints. Supports interactive use, unattended/scheduled
-  runs, and Azure Automation Runbooks via Managed Identity.
+  across Entra ID, Intune, SharePoint, OneDrive, Microsoft 365 Groups, Teams, and
+  Microsoft security posture. It captures tenant governance settings instead of
+  enumerating every group, Team, SharePoint site, or OneDrive personal site.
 
 .COVERAGE
   Entra ID : Conditional Access · Directory roles + PIM · Enterprise apps + OAuth2 grants
@@ -10,6 +11,8 @@
   Intune   : Device configuration · Compliance · App protection · Scripts + health scripts
              · Enrollment configurations · App assignments · Security baselines
              · Feature update profiles · Quality update profiles
+  M365     : SharePoint / OneDrive tenant settings · Microsoft 365 Group governance
+             · Teams tenant policies · Microsoft Secure Score controls
 
 .MODES
   Snapshot      – Collect current state from all selected endpoints and export to JSON
@@ -30,7 +33,12 @@
     Policy.Read.All, RoleManagement.Read.Directory, Application.Read.All,
     Directory.Read.All, DeviceManagementConfiguration.Read.All,
     DeviceManagementApps.Read.All, DeviceManagementServiceConfig.Read.All,
-    DeviceManagementManagedDevices.Read.All
+    DeviceManagementManagedDevices.Read.All, DeviceManagementScripts.Read.All,
+    SharePointTenantSettings.Read.All, SecurityEvents.Read.All
+
+  Teams tenant policies use the MicrosoftTeams module and delegated interactive or
+  device-code authentication. They are not collected by an Automation Account or
+  Graph client-secret authentication.
 
   Required Azure RBAC on the Storage Account:
     Storage Blob Data Contributor
@@ -71,7 +79,9 @@ param(
   # EntraCA, EntraDirectoryRoles, EntraEnterpriseApps, EntraAuthMethods,
   # IntuneDeviceConfig, IntuneCompliance, IntuneAppProtection,
   # IntuneScripts, IntuneEnrollment, IntuneAppAssignments,
-  # IntuneFeatureUpdateProfiles, IntuneQualityUpdateProfiles
+  # IntuneSecurityBaselines, IntuneFeatureUpdateProfiles, IntuneQualityUpdateProfiles,
+  # SharePointOneDriveTenantSettings, M365GroupGovernance, TeamsTenantPolicies,
+  # DefenderSecurityPosture
   [string[]]$Endpoints,
 
   # Baseline name for SetBaseline (save) or CheckDrift (load).
@@ -125,15 +135,19 @@ $ErrorActionPreference = 'Stop'
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-$script:ToolVersion = '1.0'
+$script:ToolVersion = '1.3'
 $script:ToolName    = 'Azure Config Drift'
 
 $script:AllEndpoints = @(
   'EntraCA', 'EntraDirectoryRoles', 'EntraEnterpriseApps', 'EntraAuthMethods',
   'IntuneDeviceConfig', 'IntuneCompliance', 'IntuneAppProtection',
   'IntuneScripts', 'IntuneEnrollment', 'IntuneAppAssignments', 'IntuneSecurityBaselines',
-  'IntuneFeatureUpdateProfiles', 'IntuneQualityUpdateProfiles'
+  'IntuneFeatureUpdateProfiles', 'IntuneQualityUpdateProfiles',
+  'SharePointOneDriveTenantSettings', 'M365GroupGovernance', 'TeamsTenantPolicies',
+  'DefenderSecurityPosture'
 )
+
+$script:InteractiveOnlyEndpoints = @('TeamsTenantPolicies')
 
 $script:EndpointLabels = @{
   EntraCA              = 'Entra – Conditional Access'
@@ -149,6 +163,10 @@ $script:EndpointLabels = @{
   IntuneSecurityBaselines      = 'Intune – Security Baselines'
   IntuneFeatureUpdateProfiles  = 'Intune – Feature Update Profiles'
   IntuneQualityUpdateProfiles  = 'Intune – Quality Update Profiles'
+  SharePointOneDriveTenantSettings = 'SharePoint / OneDrive – Tenant Settings'
+  M365GroupGovernance         = 'Microsoft 365 – Group Governance'
+  TeamsTenantPolicies         = 'Microsoft Teams – Tenant Policies'
+  DefenderSecurityPosture     = 'Microsoft Defender – Secure Score Controls'
 }
 
 $script:RequiredScopes = @(
@@ -160,8 +178,12 @@ $script:RequiredScopes = @(
   'DeviceManagementApps.Read.All',
   'DeviceManagementServiceConfig.Read.All',
   'DeviceManagementManagedDevices.Read.All',
-  'DeviceManagementScripts.Read.All'
+  'DeviceManagementScripts.Read.All',
+  'SharePointTenantSettings.Read.All',
+  'SecurityEvents.Read.All'
 )
+
+$script:TeamsConnected = $false
 
 # Detect Azure Automation Runbook context
 $script:IsRunbook = $false
@@ -316,6 +338,67 @@ function Invoke-GraphSingle {
   Invoke-MgGraphRequest -Method GET -Uri (Normalize-GraphUri $Uri)
 }
 
+function Connect-TeamsForSnapshot {
+  <#
+  .SYNOPSIS
+    Connects to Microsoft Teams PowerShell for tenant-policy collection.
+
+  .DESCRIPTION
+    Establishes a separate delegated Teams session because tenant policy cmdlets
+    aren't exposed through the Microsoft Graph connection used by this tool.
+
+  .NOTES
+    Read-only. Requires the MicrosoftTeams module and an account permitted to
+    read Teams tenant policies.
+  #>
+  [CmdletBinding()]
+  param()
+
+  if ($script:TeamsConnected) { return }
+  if ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials') {
+    throw 'TeamsTenantPolicies requires delegated Interactive or DeviceCode authentication. MicrosoftTeams certificate authentication is not configured by this tool.'
+  }
+
+  Write-Step 'Authenticating to Microsoft Teams PowerShell...'
+  $teamsParams = @{ ErrorAction = 'Stop' }
+  if ($TenantId) { $teamsParams['TenantId'] = $TenantId }
+  if ($AuthMethod -eq 'DeviceCode') { $teamsParams['UseDeviceAuthentication'] = $true }
+  Connect-MicrosoftTeams @teamsParams | Out-Null
+  $script:TeamsConnected = $true
+  Write-Ok 'Connected to Microsoft Teams PowerShell.'
+}
+
+function Test-IsTeamsFeatureNotEnabled {
+  <#
+  .SYNOPSIS
+    Identifies a Teams cmdlet unavailable because its feature isn't enabled.
+
+  .DESCRIPTION
+    Some MicrosoftTeams module commands are exposed before their backing service
+    type is enabled for a tenant. The service reports this as error 40003.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+  $message = $ErrorRecord.Exception.Message
+  return $message -match '(?i)not currently enabled in flighting' -or
+    $message -match '"errorCode"\s*:\s*"?40003"?'
+}
+
+function Get-IntuneAssignments {
+  param(
+    [Parameter(Mandatory)][string]$Uri,
+    [Parameter(Mandatory)][string]$ResourceName
+  )
+
+  try {
+    return @(Get-GraphPaged -Uri $Uri)
+  } catch {
+    Write-Warn "  Assignments for '$ResourceName': $_"
+    return @()
+  }
+}
+
 # ─── Endpoint Collectors ─────────────────────────────────────────────────────
 
 function Get-EntraCASnapshot {
@@ -418,6 +501,7 @@ function Get-IntuneDeviceConfigSnapshot {
         createdDateTime      = $cfg.createdDateTime
         lastModifiedDateTime = $cfg.lastModifiedDateTime
         settings             = $cfg
+        assignments          = Get-IntuneAssignments -Uri "/beta/deviceManagement/deviceConfigurations/$($cfg.id)/assignments" -ResourceName $cfg.displayName
       })
     }
   } catch { Write-Warn "Legacy device configurations: $_" }
@@ -442,6 +526,7 @@ function Get-IntuneDeviceConfigSnapshot {
         createdDateTime      = $policy.createdDateTime
         lastModifiedDateTime = $policy.lastModifiedDateTime
         settings             = $settingInstances
+        assignments          = Get-IntuneAssignments -Uri "/beta/deviceManagement/configurationPolicies/$($policy.id)/assignments" -ResourceName $policy.name
       })
     }
   } catch { Write-Warn "Settings Catalog policies: $_" }
@@ -460,6 +545,7 @@ function Get-IntuneComplianceSnapshot {
       createdDateTime      = $_.createdDateTime
       lastModifiedDateTime = $_.lastModifiedDateTime
       settings             = $_
+      assignments          = Get-IntuneAssignments -Uri "/v1.0/deviceManagement/deviceCompliancePolicies/$($_.id)/assignments" -ResourceName $_.displayName
     }
   }
 }
@@ -475,6 +561,7 @@ function Get-IntuneAppProtectionSnapshot {
       createdDateTime      = $_.createdDateTime
       lastModifiedDateTime = $_.lastModifiedDateTime
       settings             = $_
+      assignments          = Get-IntuneAssignments -Uri "/beta/deviceAppManagement/managedAppPolicies/$($_.id)/assignments" -ResourceName $_.displayName
     }
   }
 }
@@ -493,6 +580,7 @@ function Get-IntuneScriptsSnapshot {
         createdDateTime      = $s.createdDateTime
         lastModifiedDateTime = $s.lastModifiedDateTime
         settings             = $s
+        assignments          = Get-IntuneAssignments -Uri "/beta/deviceManagement/deviceManagementScripts/$($s.id)/assignments" -ResourceName $s.displayName
       })
     }
   } catch { Write-Warn "Device management scripts: $_" }
@@ -507,6 +595,7 @@ function Get-IntuneScriptsSnapshot {
         createdDateTime      = $s.createdDateTime
         lastModifiedDateTime = $s.lastModifiedDateTime
         settings             = $s
+        assignments          = Get-IntuneAssignments -Uri "/beta/deviceManagement/deviceHealthScripts/$($s.id)/assignments" -ResourceName $s.displayName
       })
     }
   } catch { Write-Warn "Device health scripts: $_" }
@@ -526,6 +615,7 @@ function Get-IntuneEnrollmentSnapshot {
       createdDateTime      = (Get-GraphPropValue -Obj $_ -Name 'createdDateTime')
       lastModifiedDateTime = (Get-GraphPropValue -Obj $_ -Name 'lastModifiedDateTime')
       settings             = $_
+      assignments          = Get-IntuneAssignments -Uri "/v1.0/deviceManagement/deviceEnrollmentConfigurations/$($_.id)/assignments" -ResourceName $_.displayName
     }
   }
 }
@@ -553,6 +643,7 @@ function Get-IntuneSecurityBaselinesSnapshot {
       isAssigned           = (Get-GraphPropValue -Obj $intent -Name 'isAssigned')
       lastModifiedDateTime = $intent.lastModifiedDateTime
       settings             = $settings
+      assignments          = Get-IntuneAssignments -Uri "/beta/deviceManagement/intents/$($intent.id)/assignments" -ResourceName $intent.displayName
     })
   }
   return $result
@@ -643,6 +734,116 @@ function Get-IntuneQualityUpdateProfilesSnapshot {
   return $result
 }
 
+function Get-SharePointOneDriveTenantSettingsSnapshot {
+  Write-Info 'Collecting SharePoint and OneDrive tenant settings...'
+  return [pscustomobject]@{
+    id       = 'SharePointOneDriveTenantSettings'
+    settings = Invoke-GraphSingle -Uri '/v1.0/admin/sharepoint/settings'
+  }
+}
+
+function Get-M365GroupGovernanceSnapshot {
+  <#
+  .SYNOPSIS
+    Captures tenant-wide Microsoft 365 Group governance settings.
+
+  .DESCRIPTION
+    Captures only Group.Unified directory settings and group lifecycle policies.
+    It intentionally doesn't enumerate individual Microsoft 365 Groups.
+
+  .NOTES
+    Read-only. Requires Directory.Read.All.
+  #>
+  [CmdletBinding()]
+  param()
+
+  Write-Info 'Collecting Microsoft 365 Group governance settings...'
+  # Group.Unified tenant settings are currently available only in Microsoft Graph beta.
+  $directorySettings = Get-GraphPaged -Uri '/beta/settings'
+  $groupSettings = @($directorySettings | Where-Object {
+    [string](Get-GraphPropValue -Obj $_ -Name 'displayName') -like 'Group.Unified*'
+  })
+  $lifecyclePolicies = Get-GraphPaged -Uri '/v1.0/groupLifecyclePolicies'
+
+  return [pscustomobject]@{
+    id                = 'M365GroupGovernance'
+    directorySettings = $groupSettings
+    lifecyclePolicies = $lifecyclePolicies
+  }
+}
+
+function Get-TeamsTenantPoliciesSnapshot {
+  <#
+  .SYNOPSIS
+    Captures Microsoft Teams tenant configuration and policy objects.
+
+  .DESCRIPTION
+    Invokes Teams PowerShell cmdlets that expose tenant configuration and policy
+    objects. It doesn't enumerate individual Teams, channels, users, or members.
+
+  .NOTES
+    Read-only. Requires the MicrosoftTeams module and delegated Teams administration.
+  #>
+  [CmdletBinding()]
+  param()
+
+  Connect-TeamsForSnapshot
+  Write-Info 'Collecting Microsoft Teams tenant policies...'
+
+  $coreCommands = @(
+    'Get-CsTenant',
+    'Get-CsExternalAccessPolicy',
+    'Get-CsTeamsCustomBannerText',
+    'Get-CsTeamsSettingsCustomApp',
+    'Get-CsTeamsTranslationRule',
+    'Get-CsTeamsUnassignedNumberTreatment'
+  )
+  $policyCommands = @(
+    Get-Command -Module MicrosoftTeams -CommandType Cmdlet,Function -ErrorAction Stop |
+      Where-Object {
+        $_.Name -match '^Get-CsTeams.+(Policy|Configuration)$' -or
+        $_.Name -match '^Get-Cs(Online|Tenant).+(Policy|Configuration)$' -or
+        $_.Name -in $coreCommands
+      } |
+      Sort-Object -Property Name
+  )
+  if ($policyCommands.Count -eq 0) {
+    throw 'No supported Teams tenant policy cmdlets were found in the MicrosoftTeams module.'
+  }
+
+  $policies = [ordered]@{}
+  foreach ($command in $policyCommands) {
+    Write-Info "  Reading $($command.Name)..."
+    try {
+      $policies[$command.Name] = @(& $command -ErrorAction Stop)
+    } catch {
+      if (Test-IsTeamsFeatureNotEnabled -ErrorRecord $_) {
+        Write-Warn "  Skipping $($command.Name): its Teams feature isn't enabled for this tenant."
+        continue
+      }
+      throw "Teams tenant policy collection failed for $($command.Name): $($_.Exception.Message)"
+    }
+  }
+
+  return [pscustomobject]@{
+    id       = 'TeamsTenantPolicies'
+    policies = $policies
+  }
+}
+
+function Get-DefenderSecurityPostureSnapshot {
+  Write-Info 'Collecting Microsoft Secure Score control profiles...'
+  $profiles = Get-GraphPaged -Uri '/v1.0/security/secureScoreControlProfiles'
+  return $profiles | ForEach-Object {
+    [pscustomobject]@{
+      id                   = $_.id
+      displayName          = $_.title
+      lastModifiedDateTime = $_.lastModifiedDateTime
+      control              = $_
+    }
+  }
+}
+
 # Endpoint dispatch table
 $script:Collectors = [ordered]@{
   EntraCA              = { Get-EntraCASnapshot }
@@ -658,6 +859,10 @@ $script:Collectors = [ordered]@{
   IntuneSecurityBaselines     = { Get-IntuneSecurityBaselinesSnapshot }
   IntuneFeatureUpdateProfiles = { Get-IntuneFeatureUpdateProfilesSnapshot }
   IntuneQualityUpdateProfiles = { Get-IntuneQualityUpdateProfilesSnapshot }
+  SharePointOneDriveTenantSettings = { Get-SharePointOneDriveTenantSettingsSnapshot }
+  M365GroupGovernance         = { Get-M365GroupGovernanceSnapshot }
+  TeamsTenantPolicies         = { Get-TeamsTenantPoliciesSnapshot }
+  DefenderSecurityPosture     = { Get-DefenderSecurityPostureSnapshot }
 }
 
 # ─── Snapshot Orchestrator ───────────────────────────────────────────────────
@@ -1198,8 +1403,13 @@ function Select-Endpoints {
     $i++
   }
   Write-Out ''
-  $userSelection = Read-Host '  Endpoints [default: all]'
-  if ([string]::IsNullOrWhiteSpace($userSelection)) { return $script:AllEndpoints }
+  $userSelection = Read-Host '  Endpoints [default: all supported by the selected authentication method]'
+  if ([string]::IsNullOrWhiteSpace($userSelection)) {
+    if ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials') {
+      return @($script:AllEndpoints | Where-Object { $_ -notin $script:InteractiveOnlyEndpoints })
+    }
+    return $script:AllEndpoints
+  }
 
   $selected = [System.Collections.Generic.List[string]]::new()
   foreach ($part in ($userSelection -split ',')) {
@@ -1266,10 +1476,17 @@ $invalid = $Endpoints | Where-Object { $_ -notin $script:AllEndpoints }
 if ($invalid) {
   throw "Invalid endpoint name(s): $($invalid -join ', '). Valid: $($script:AllEndpoints -join ', ')"
 }
+$interactiveOnlySelection = @($Endpoints | Where-Object { $_ -in $script:InteractiveOnlyEndpoints })
+if ($interactiveOnlySelection.Count -gt 0 -and ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials')) {
+  throw "Endpoint(s) $($interactiveOnlySelection -join ', ') require delegated Interactive or DeviceCode authentication. Remove these endpoints or change -AuthMethod."
+}
 
 # ── Module loading ────────────────────────────────────────────────────────────
 
 Ensure-Module -Name 'Microsoft.Graph.Authentication'
+if ($Endpoints -contains 'TeamsTenantPolicies') {
+  Ensure-Module -Name 'MicrosoftTeams'
+}
 
 $storageCtx = $null
 if ($UploadToBlob -or ($AuthMethod -eq 'ClientCredentials' -and $StorageAccountName) -or ($Mode -eq 'CheckDrift' -and -not (Test-Path (Join-Path $baselinesRoot ($BaselineName ?? 'x'))))) {
@@ -1364,6 +1581,9 @@ if ($Mode -eq 'ListBaselines') {
 
   if ($transcriptStarted) { Stop-Transcript | Out-Null }
   try { Disconnect-MgGraph | Out-Null } catch {}
+  if ($script:TeamsConnected) {
+    try { Disconnect-MicrosoftTeams | Out-Null } catch {}
+  }
   return
 }
 

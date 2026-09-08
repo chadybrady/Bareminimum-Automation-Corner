@@ -31,7 +31,7 @@
     -ListId '00000000-...'
 
 .NOTES
-  Author  : Bareminimum Automation Corner
+  Author  : Microsoft 365 Automation Toolkit
   Version : 1.0
 #>
 

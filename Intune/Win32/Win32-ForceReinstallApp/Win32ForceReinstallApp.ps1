@@ -26,7 +26,7 @@
     .\Win32ForceReinstallApp.ps1 -AppId "12345678-1234-1234-1234-123456789012"
 
 .NOTES
-    Author: Bareminimum Solutions (Enhanced with expert techniques)
+    Author: Microsoft 365 Administration (Enhanced with expert techniques)
     Requires: Administrator privileges
     Version: 2.0
     

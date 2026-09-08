@@ -1,8 +1,5 @@
-# 🤖 Bareminimum Automation Corner
+# 🤖 Microsoft 365 Automation Toolkit
 
-![GitHub stars](https://img.shields.io/github/stars/chadybrady/Bareminimum-Automation-Corner?style=flat-square)
-![GitHub forks](https://img.shields.io/github/forks/chadybrady/Bareminimum-Automation-Corner?style=flat-square)
-![GitHub last commit](https://img.shields.io/github/last-commit/chadybrady/Bareminimum-Automation-Corner?style=flat-square)
 ![PowerShell](https://img.shields.io/badge/language-PowerShell-5391FE?logo=powershell&logoColor=white&style=flat-square)
 
 > A practical collection of PowerShell automation tools for Microsoft 365 administrators. Each workload folder contains focused deployment, monitoring, auditing, and remediation utilities with its own prerequisites and safety guidance.
@@ -39,8 +36,8 @@ Most scripts require:
 1. Clone this repository:
 
 ```powershell
-git clone https://github.com/chadybrady/Bareminimum-Automation-Corner.git
-cd Bareminimum-Automation-Corner
+git clone <repository-url>
+cd <repository-directory>
 ```
 
 2. Open the folder for the workload you want to automate.

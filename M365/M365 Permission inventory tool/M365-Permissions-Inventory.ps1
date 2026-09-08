@@ -59,7 +59,7 @@ Write-Host ""
 Write-Host "  ╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "  ║                                                              ║" -ForegroundColor Cyan
 Write-Host "  ║        M365 Permissions Inventory  ·  v2.1                   ║" -ForegroundColor Cyan
-Write-Host "  ║        Bareminimum Automation                                ║" -ForegroundColor DarkCyan
+Write-Host "  ║        Microsoft 365 Automation                                ║" -ForegroundColor DarkCyan
 Write-Host "  ║                                                              ║" -ForegroundColor Cyan
 Write-Host "  ╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""

@@ -12,7 +12,7 @@
 .NOTES
   Required module : Microsoft.Entra
   Required scope  : Group.ReadWrite.All
-  Author          : Bareminimum Automation, 2026
+  Author          : Microsoft 365 Automation, 2026
 #>
 
 [CmdletBinding()]
@@ -34,7 +34,7 @@ function Show-Banner {
     Write-Host '  ╔══════════════════════════════════════════════════════════════╗' -ForegroundColor Cyan
     Write-Host '  ║                                                              ║' -ForegroundColor Cyan
     Write-Host '  ║   Create M365 Group                                          ║' -ForegroundColor Cyan
-    Write-Host '  ║   Bareminimum Automation                                     ║' -ForegroundColor DarkCyan
+    Write-Host '  ║   Microsoft 365 Automation                                     ║' -ForegroundColor DarkCyan
     Write-Host '  ║                                                              ║' -ForegroundColor Cyan
     Write-Host '  ╚══════════════════════════════════════════════════════════════╝' -ForegroundColor Cyan
     Write-Host ''

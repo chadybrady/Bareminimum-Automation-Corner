@@ -54,7 +54,7 @@
     -ContainerName 'win32-packages'
 
 .NOTES
-  Author  : Bareminimum Automation Corner
+  Author  : Microsoft 365 Automation Toolkit
   Version : 1.0
 #>
 

@@ -1,6 +1,8 @@
 # 🔄 Azure Configuration Drift
 
-> Capture Microsoft Entra ID and Intune configuration, promote approved snapshots to baselines, and report unauthorized or unintended drift.
+> Capture Microsoft Entra ID, Intune, SharePoint, OneDrive, Microsoft 365 Group governance, Teams tenant policies, and Microsoft security posture data; promote approved snapshots to baselines and report unauthorized or unintended drift.
+
+> The Microsoft 365 collectors are tenant-policy focused. They capture the settings that govern all groups, Teams, SharePoint sites, and OneDrive accounts, without enumerating individual resources.
 
 Supports interactive menu-driven use, fully unattended/scheduled execution, and native Azure Automation Runbook deployment via Managed Identity.
 
@@ -59,6 +61,12 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 | `IntuneSecurityBaselines` | Intune | Security baseline intents with full per-setting values |
 | `IntuneFeatureUpdateProfiles` | Intune | Windows Feature Update profiles and their group assignments |
 | `IntuneQualityUpdateProfiles` | Intune | Windows Quality Update profiles and their group assignments |
+| `SharePointOneDriveTenantSettings` | SharePoint / OneDrive | Tenant-level SharePoint and OneDrive settings |
+| `M365GroupGovernance` | Microsoft 365 | Tenant-wide `Group.Unified*` directory settings and group lifecycle policies; does not enumerate individual groups |
+| `TeamsTenantPolicies` | Microsoft Teams | Tenant configuration and all available `Get-CsTeams*Policy` / `Get-CsTeams*Configuration` policy objects, plus core tenant and external-access settings; does not enumerate individual Teams |
+| `DefenderSecurityPosture` | Microsoft Defender | Microsoft Secure Score control profiles and each control's state metadata; this is security posture, not a full Defender product-policy export |
+
+`IntuneDeviceConfig`, `IntuneCompliance`, `IntuneAppProtection`, `IntuneScripts`, `IntuneEnrollment`, and `IntuneSecurityBaselines` now also include their group/filter assignment objects. This detects targeting changes in addition to policy-content changes.
 
 ---
 
@@ -95,6 +103,7 @@ Supports interactive menu-driven use, fully unattended/scheduled execution, and 
 | Module | Required when |
 |---|---|
 | `Microsoft.Graph.Authentication` | Always (auto-installed if missing) |
+| `MicrosoftTeams` | `TeamsTenantPolicies` is selected; auto-installed if missing |
 | `Az.Accounts` | Azure Automation (Managed Identity), `ClientCredentials` with `-StorageAccountName`, or blob operations |
 | `Az.Storage` | Blob upload (`-UploadToBlob`) or downloading baselines from blob |
 
@@ -113,7 +122,11 @@ Grant the following as **app roles** (application permissions) for unattended/ru
 | `DeviceManagementServiceConfig.Read.All` | Enrollment configurations |
 | `DeviceManagementManagedDevices.Read.All` | Managed device data |
 | `DeviceManagementScripts.Read.All` | Intune management scripts and health scripts |
+| `SharePointTenantSettings.Read.All` | SharePoint and OneDrive tenant settings |
+| `SecurityEvents.Read.All` | Microsoft Secure Score control profiles |
 | `AuditLog.Read.All` | `ModifiedBy` population via audit logs *(only when `-IncludeAuditData` is used)* |
+
+`M365GroupGovernance` uses Microsoft Graph beta `GET /settings` for the `Group.Unified*` directory settings and v1.0 `GET /groupLifecyclePolicies`. `Directory.Read.All` is already required by the Entra collectors; `GroupSettings.Read.All` is the least-privilege alternative for the group settings call. `TeamsTenantPolicies` uses the MicrosoftTeams PowerShell module, not Microsoft Graph. It requires an account with a Teams administrative role and supports only `Interactive` or `DeviceCode` authentication in this tool.
 
 ---
 
@@ -163,6 +176,10 @@ AzureConfigDrift\
 │       ├── IntuneEnrollment.json
 │       ├── IntuneAppAssignments.json
 │       ├── IntuneSecurityBaselines.json
+│       ├── SharePointOneDriveTenantSettings.json
+│       ├── M365GroupGovernance.json
+│       ├── TeamsTenantPolicies.json
+│       ├── DefenderSecurityPosture.json
 │       ├── Snapshot.json              # Combined snapshot
 │       └── audit.log
 │
@@ -197,7 +214,7 @@ AzureConfigDrift\
 .\AzureConfigDrift.ps1 -AuthMethod ClientCredentials `
     -TenantId  "00000000-0000-0000-0000-000000000000" `
     -ClientId  "11111111-0000-0000-0000-000000000000" `
-    -ClientSecret $env:APP_SECRET `
+    -ClientSecret ($env:APP_SECRET | ConvertTo-SecureString -AsPlainText -Force) `
     -Mode Snapshot -Unattended
 
 # Target a specific tenant
@@ -229,6 +246,11 @@ AzureConfigDrift\
 
 # Check drift for Entra ID endpoints only
 .\AzureConfigDrift.ps1 -Mode CheckDrift -BaselineName "April2026" -Endpoints EntraCA,EntraAuthMethods
+
+# Capture settings governing all SharePoint sites, OneDrive accounts, M365 Groups,
+# and Teams, without enumerating sites, drives, groups, or individual Teams
+.\AzureConfigDrift.ps1 -Mode Snapshot `
+    -Endpoints SharePointOneDriveTenantSettings,M365GroupGovernance,TeamsTenantPolicies,DefenderSecurityPosture
 
 # Scheduled unattended drift check with upload to Azure Blob Storage
 .\AzureConfigDrift.ps1 -Mode CheckDrift -BaselineName "April2026" -Unattended -UploadToBlob -StorageAccountName "mystorageaccount"
@@ -265,7 +287,14 @@ Assign the required Microsoft Graph **app roles** to the Automation Account's Ma
 | **PIM eligibility requires Entra ID P2** | Eligible assignment collection under `EntraDirectoryRoles` requires an Entra ID P2 (or equivalent) licence. The script skips PIM collection gracefully if P2 is not available. |
 | **Audit log lookback is 30 days** | Microsoft Graph audit logs retain data for a maximum of 30 days. `ModifiedBy` cannot be populated for changes older than this window. |
 | **`ModifiedBy` is best-effort** | Audit log matching is performed by resource ID; the **last matching event** wins. If a resource was modified multiple times or by automated processes, the result may not reflect the most operationally relevant actor. |
-| **Read-only** | The script does not make any changes to your Entra ID or Intune environment. |
+| **No individual resource enumeration** | The M365 collectors intentionally don't enumerate individual SharePoint sites, OneDrive accounts, Microsoft 365 Groups, Teams, channels, or members. This keeps snapshots focused on the policies governing all of them. |
+| **SharePoint / OneDrive Graph coverage** | The tenant settings endpoint doesn't expose all classic SharePoint administration properties, per-site settings, sharing links, item-level permissions, quotas, retention, or lock state. Use SharePoint Online Management Shell or PnP.PowerShell for those surfaces. |
+| **Teams requires a second sign-in** | `TeamsTenantPolicies` opens a separate MicrosoftTeams PowerShell session. It is unavailable with `ClientCredentials` and in Azure Automation Runbooks, because this tool doesn't configure Teams certificate authentication. |
+| **Teams feature availability varies** | The MicrosoftTeams module can expose policy cmdlets before their backing tenant feature is enabled. The tool warns and skips only the service's explicit `40003` “not currently enabled in flighting” response; permission and other API errors still fail the Teams collector. |
+| **M365 Group settings use Graph beta** | `Group.Unified*` directory settings are not exposed through Microsoft Graph v1.0. The tool uses the beta endpoint and may require maintenance if Microsoft changes that contract. |
+| **Defender coverage is security posture** | Secure Score control profiles do not replace Microsoft Defender for Office 365, Defender for Endpoint, Defender for Identity, or Defender for Cloud Apps policy exports. Those products require their own supported administration APIs or PowerShell modules. |
+| **Exchange and Purview are not collected** | Mail flow, Exchange organization settings, retention, DLP, sensitivity labels, eDiscovery, and audit configuration require Exchange Online or Microsoft Purview administration interfaces. |
+| **Read-only** | The script does not make any changes to the tenant. |
 
 ---
 
@@ -287,6 +316,8 @@ Contributions, bug reports, and feature requests are welcome:
 - Prefer managed identity for unattended Azure Automation runs.
 - Store client secrets in a secure secret store and pass them as `SecureString` values.
 - Grant only the Microsoft Graph read permissions required by the selected endpoints.
+- Use a dedicated Teams Administrator account for `TeamsTenantPolicies`; it creates a separate delegated MicrosoftTeams session.
+- Restrict and protect snapshots: tenant policy, group governance, and security posture data are tenant-sensitive.
 - Protect snapshots, baselines, reports, and audit metadata as tenant-sensitive information.
 - Review detected drift before making any remediation changes outside this tool.
 
@@ -299,3 +330,6 @@ Contributions, bug reports, and feature requests are welcome:
 - [Conditional Access Overview](https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview)
 - [Intune Security Baselines](https://learn.microsoft.com/en-us/mem/intune/protect/security-baselines)
 - [Microsoft Graph API Permissions Reference](https://learn.microsoft.com/en-us/graph/permissions-reference)
+- [SharePoint and OneDrive tenant settings](https://learn.microsoft.com/en-us/graph/api/sharepointsettings-get?view=graph-rest-1.0)
+- [Microsoft Teams PowerShell](https://learn.microsoft.com/en-us/microsoftteams/teams-powershell-overview)
+- [Microsoft Secure Score control profiles](https://learn.microsoft.com/en-us/graph/api/security-list-securescorecontrolprofiles?view=graph-rest-1.0)
