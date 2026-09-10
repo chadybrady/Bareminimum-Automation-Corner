@@ -13,6 +13,7 @@
              · Feature update profiles · Quality update profiles
   M365     : SharePoint / OneDrive tenant settings · Microsoft 365 Group governance
              · Teams tenant policies · Microsoft Secure Score controls
+  Exchange : Organization · Mail flow · Client access · Defender for Office 365 policies
 
 .MODES
   Snapshot      – Collect current state from all selected endpoints and export to JSON
@@ -39,6 +40,10 @@
   Teams tenant policies use the MicrosoftTeams module and delegated interactive or
   device-code authentication. They are not collected by an Automation Account or
   Graph client-secret authentication.
+
+  Exchange tenant policies use the ExchangeOnlineManagement module and delegated
+  interactive or device-code authentication. They are not collected by an Automation
+  Account or Graph client-secret authentication.
 
   Required Azure RBAC on the Storage Account:
     Storage Blob Data Contributor
@@ -81,7 +86,8 @@ param(
   # IntuneScripts, IntuneEnrollment, IntuneAppAssignments,
   # IntuneSecurityBaselines, IntuneFeatureUpdateProfiles, IntuneQualityUpdateProfiles,
   # SharePointOneDriveTenantSettings, M365GroupGovernance, TeamsTenantPolicies,
-  # DefenderSecurityPosture
+  # DefenderSecurityPosture, ExchangeOrganization, ExchangeMailFlow,
+  # ExchangeClientAccess, ExchangeDefenderForOffice
   [string[]]$Endpoints,
 
   # Baseline name for SetBaseline (save) or CheckDrift (load).
@@ -135,7 +141,7 @@ $ErrorActionPreference = 'Stop'
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-$script:ToolVersion = '1.3'
+$script:ToolVersion = '1.6'
 $script:ToolName    = 'Azure Config Drift'
 
 $script:AllEndpoints = @(
@@ -144,10 +150,17 @@ $script:AllEndpoints = @(
   'IntuneScripts', 'IntuneEnrollment', 'IntuneAppAssignments', 'IntuneSecurityBaselines',
   'IntuneFeatureUpdateProfiles', 'IntuneQualityUpdateProfiles',
   'SharePointOneDriveTenantSettings', 'M365GroupGovernance', 'TeamsTenantPolicies',
-  'DefenderSecurityPosture'
+  'DefenderSecurityPosture', 'ExchangeOrganization', 'ExchangeMailFlow',
+  'ExchangeClientAccess', 'ExchangeDefenderForOffice'
 )
 
-$script:InteractiveOnlyEndpoints = @('TeamsTenantPolicies')
+$script:DelegatedOnlyEndpoints = @(
+  'TeamsTenantPolicies',
+  'ExchangeOrganization', 'ExchangeMailFlow', 'ExchangeClientAccess', 'ExchangeDefenderForOffice'
+)
+$script:ExchangeEndpoints = @(
+  'ExchangeOrganization', 'ExchangeMailFlow', 'ExchangeClientAccess', 'ExchangeDefenderForOffice'
+)
 
 $script:EndpointLabels = @{
   EntraCA              = 'Entra – Conditional Access'
@@ -167,6 +180,10 @@ $script:EndpointLabels = @{
   M365GroupGovernance         = 'Microsoft 365 – Group Governance'
   TeamsTenantPolicies         = 'Microsoft Teams – Tenant Policies'
   DefenderSecurityPosture     = 'Microsoft Defender – Secure Score Controls'
+  ExchangeOrganization         = 'Exchange Online – Organization'
+  ExchangeMailFlow             = 'Exchange Online – Mail Flow'
+  ExchangeClientAccess         = 'Exchange Online – Client Access'
+  ExchangeDefenderForOffice    = 'Defender for Office 365 – Policies'
 }
 
 $script:RequiredScopes = @(
@@ -184,6 +201,11 @@ $script:RequiredScopes = @(
 )
 
 $script:TeamsConnected = $false
+$script:ExchangeConnected = $false
+$script:ExchangeConnectionId = $null
+$script:GraphConnected = $false
+$script:GraphTenantId = $null
+$script:LastSnapshotEndpointStatus = @{}
 
 # Detect Azure Automation Runbook context
 $script:IsRunbook = $false
@@ -262,6 +284,38 @@ function Ensure-Module {
     Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
   }
   Import-Module -Name $Name -ErrorAction Stop
+}
+
+function Ensure-ExchangeOnlineManagementModule {
+  [CmdletBinding()]
+  param()
+
+  $minimumSupportedVersion = [version]'7.4.0'
+  if ($PSVersionTable.PSVersion -lt $minimumSupportedVersion) {
+    throw "Exchange endpoints require PowerShell 7.4 or later. Current version: $($PSVersionTable.PSVersion)."
+  }
+
+  $minimumCurrentVersion = [version]'7.6.0'
+  if ($PSVersionTable.PSVersion -ge $minimumCurrentVersion) {
+    Ensure-Module -Name 'ExchangeOnlineManagement'
+    return
+  }
+
+  $compatibleVersion = [version]'3.9.2'
+  $module = Get-Module -ListAvailable -Name 'ExchangeOnlineManagement' |
+    Where-Object { $_.Version -eq $compatibleVersion } |
+    Select-Object -First 1
+  if (-not $module) {
+    Write-Step "Installing ExchangeOnlineManagement $compatibleVersion for PowerShell $($PSVersionTable.PSVersion)..."
+    Install-Module -Name 'ExchangeOnlineManagement' -RequiredVersion $compatibleVersion -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    $module = Get-Module -ListAvailable -Name 'ExchangeOnlineManagement' |
+      Where-Object { $_.Version -eq $compatibleVersion } |
+      Select-Object -First 1
+  }
+  if (-not $module) {
+    throw "ExchangeOnlineManagement $compatibleVersion could not be installed for PowerShell $($PSVersionTable.PSVersion). Upgrade to PowerShell 7.6 or install the compatible module version manually."
+  }
+  Import-Module -Name $module.Path -Force -ErrorAction Stop
 }
 
 # ─── Graph Helpers ───────────────────────────────────────────────────────────
@@ -383,6 +437,291 @@ function Test-IsTeamsFeatureNotEnabled {
   $message = $ErrorRecord.Exception.Message
   return $message -match '(?i)not currently enabled in flighting' -or
     $message -match '"errorCode"\s*:\s*"?40003"?'
+}
+
+function Connect-ExchangeForSnapshot {
+  <#
+  .SYNOPSIS
+    Connects to Exchange Online PowerShell for tenant-policy collection.
+
+  .DESCRIPTION
+    Establishes a separate delegated Exchange Online session because Exchange
+    policy cmdlets aren't exposed through the Microsoft Graph connection.
+
+  .NOTES
+    Read-only. Requires ExchangeOnlineManagement and Exchange RBAC access to
+    the selected tenant policy surfaces.
+  #>
+  [CmdletBinding()]
+  param()
+
+  if ($script:ExchangeConnected) { return }
+  if ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials') {
+    throw 'Exchange endpoints require delegated Interactive or DeviceCode authentication. Exchange certificate or managed-identity authentication is not configured by this tool.'
+  }
+
+  Write-Step 'Authenticating to Exchange Online PowerShell...'
+  $existingConnectionIds = @(
+    Get-ConnectionInformation -ErrorAction Stop |
+      ForEach-Object { [string]$_.ConnectionId }
+  )
+  $exchangeParams = @{
+    ShowBanner = $false
+    ErrorAction = 'Stop'
+  }
+  if ($AuthMethod -eq 'DeviceCode') { $exchangeParams['Device'] = $true }
+  Connect-ExchangeOnline @exchangeParams | Out-Null
+
+  $newConnections = @(
+    Get-ConnectionInformation -ErrorAction Stop |
+      Where-Object { $_.State -eq 'Connected' -and $_.ConnectionId -notin $existingConnectionIds }
+  )
+  if ($newConnections.Count -ne 1) {
+    foreach ($connection in $newConnections) {
+      try {
+        Disconnect-ExchangeOnline -ConnectionId $connection.ConnectionId -Confirm:$false | Out-Null
+      } catch {
+        Write-Warn "Could not disconnect an untracked Exchange Online session: $_"
+      }
+    }
+    throw "Exchange Online connection tracking failed: expected one new connection but found $($newConnections.Count)."
+  }
+
+  $script:ExchangeConnectionId = [string]$newConnections[0].ConnectionId
+  if (-not $script:GraphTenantId -or [string]$newConnections[0].TenantID -ne $script:GraphTenantId) {
+    try {
+      Disconnect-ExchangeOnline -ConnectionId $script:ExchangeConnectionId -Confirm:$false | Out-Null
+    } catch {
+      Write-Warn "Could not disconnect the Exchange Online tenant-mismatch session: $_"
+    }
+    $script:ExchangeConnectionId = $null
+    throw "Exchange Online connected to tenant '$($newConnections[0].TenantID)', but Microsoft Graph is connected to tenant '$($script:GraphTenantId ?? 'unknown')'. Sign in to the same tenant and try again."
+  }
+
+  $script:ExchangeConnected = $true
+  Write-Ok 'Connected to Exchange Online PowerShell.'
+}
+
+function Test-IsExchangeCapabilityUnavailable {
+  <#
+  .SYNOPSIS
+    Identifies confirmed license or feature availability failures.
+
+  .DESCRIPTION
+    Defender for Office 365 cmdlets can be present in the module while their
+    service feature isn't available in a tenant. Permission and transport errors
+    aren't classified as capability failures.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+  $message = $ErrorRecord.Exception.Message
+  return $message -match '(?i)(feature|capability).{0,80}(not|isn''t).{0,40}(enabled|available)' -or
+    $message -match '(?i)(requires|does not have).{0,80}(license|licence)' -or
+    $message -match '(?i)(not licensed|license is required)'
+}
+
+function Invoke-ExchangeSnapshotCommand {
+  <#
+  .SYNOPSIS
+    Invokes one reviewed Exchange policy cmdlet and records its collection state.
+
+  .DESCRIPTION
+    Ensures every collection is complete when the cmdlet supports ResultSize.
+    Only explicitly optional Defender capability failures become visible skipped
+    records; other failures propagate to the containing Exchange endpoint.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Name,
+    [hashtable]$AdditionalParameters = @{},
+    [switch]$CapabilityOptional
+  )
+
+  $command = Get-Command -Name $Name -ErrorAction SilentlyContinue
+  if (-not $command) {
+    throw "Exchange command '$Name' isn't available in the connected session. Verify the ExchangeOnlineManagement module version and the account's Exchange RBAC permissions."
+  }
+
+  $parameters = @{ ErrorAction = 'Stop' }
+  if ($command.Parameters.ContainsKey('ResultSize')) {
+    $parameters['ResultSize'] = 'Unlimited'
+  }
+  foreach ($key in $AdditionalParameters.Keys) {
+    $parameters[$key] = $AdditionalParameters[$key]
+  }
+
+  try {
+    return [pscustomobject]@{
+      status = 'Collected'
+      reason = ''
+      data   = @(& $command @parameters | ForEach-Object { ConvertTo-ExchangeSnapshotValue -Value $_ })
+    }
+  } catch {
+    if ($CapabilityOptional -and (Test-IsExchangeCapabilityUnavailable -ErrorRecord $_)) {
+      Write-Warn "  Skipping ${Name}: Exchange reports that the required Defender feature or license is unavailable."
+      return [pscustomobject]@{
+        status = 'Skipped'
+        reason = 'The required Defender for Office 365 feature or license is unavailable in this tenant.'
+        data   = @()
+      }
+    }
+    throw
+  }
+}
+
+function ConvertTo-ExchangeSnapshotValue {
+  <#
+  .SYNOPSIS
+    Removes volatile Exchange remoting metadata from a policy result.
+
+  .DESCRIPTION
+    Exchange cmdlets return server and remoting metadata that can change without
+    a configuration change. Recursively removing those fields prevents false
+    positives while retaining the returned policy configuration.
+  #>
+  [CmdletBinding()]
+  param([AllowNull()]$Value)
+
+  if ($null -eq $Value -or
+      $Value -is [string] -or
+      $Value -is [char] -or
+      $Value -is [bool] -or
+      $Value -is [byte] -or
+      $Value -is [sbyte] -or
+      $Value -is [int16] -or
+      $Value -is [uint16] -or
+      $Value -is [int32] -or
+      $Value -is [uint32] -or
+      $Value -is [int64] -or
+      $Value -is [uint64] -or
+      $Value -is [single] -or
+      $Value -is [double] -or
+      $Value -is [decimal] -or
+      $Value -is [datetime] -or
+      $Value -is [datetimeoffset] -or
+      $Value -is [timespan] -or
+      $Value -is [guid] -or
+      $Value -is [System.Enum]) {
+    return $Value
+  }
+
+  $volatileProperties = @(
+    'WhenChanged', 'WhenChangedUTC', 'WhenCreated', 'WhenCreatedUTC',
+    'ExchangeVersion', 'AdminDisplayVersion', 'ObjectState',
+    'RunspaceId', 'PSComputerName', 'PSShowComputerName', 'PSSourceJobInstanceId'
+  )
+
+  if ($Value -is [System.Collections.IDictionary]) {
+    $snapshot = [ordered]@{}
+    foreach ($key in $Value.Keys) {
+      if ($key -notin $volatileProperties) {
+        $snapshot[$key] = ConvertTo-ExchangeSnapshotValue -Value $Value[$key]
+      }
+    }
+    return [pscustomobject]$snapshot
+  }
+
+  if ($Value -is [System.Collections.IEnumerable]) {
+    return @($Value | ForEach-Object { ConvertTo-ExchangeSnapshotValue -Value $_ })
+  }
+
+  $properties = @($Value.PSObject.Properties | Where-Object { $_.Name -notin $volatileProperties })
+  if ($properties.Count -eq 0) { return $Value }
+
+  $snapshot = [ordered]@{}
+  foreach ($property in $properties) {
+    $snapshot[$property.Name] = ConvertTo-ExchangeSnapshotValue -Value $property.Value
+  }
+  return [pscustomobject]$snapshot
+}
+
+function Get-ExchangeSnapshotItemIdentity {
+  <#
+  .SYNOPSIS
+    Returns a stable identifier for an Exchange policy object.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)]$Value,
+    [Parameter(Mandatory)][int]$Index
+  )
+
+  foreach ($property in @('ExternalDirectoryObjectId', 'Guid', 'Identity', 'Id', 'Name', 'DomainName', 'PrimarySmtpAddress')) {
+    $candidate = Get-GraphPropValue -Obj $Value -Name $property
+    if ($null -ne $candidate -and -not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      return [string]$candidate
+    }
+  }
+  return "index-$Index"
+}
+
+function Get-ExchangeEndpointSnapshot {
+  <#
+  .SYNOPSIS
+    Collects a reviewed set of Exchange Online tenant policy commands.
+
+  .DESCRIPTION
+    Emits one snapshot record per command, enabling drift reports to identify
+    the Exchange configuration surface that changed without collecting mailbox
+    or recipient data.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string]$Endpoint,
+    [Parameter(Mandatory)][object[]]$Definitions
+  )
+
+  Connect-ExchangeForSnapshot
+  $records = [System.Collections.Generic.List[object]]::new()
+
+  foreach ($definition in $Definitions) {
+    $name = [string]$definition.Name
+    Write-Info "  Reading $name..."
+    $invokeParams = @{
+      Name = $name
+      CapabilityOptional = ($definition.ContainsKey('CapabilityOptional') -and [bool]$definition.CapabilityOptional)
+    }
+    if ($definition.ContainsKey('AdditionalParameters')) {
+      $invokeParams['AdditionalParameters'] = $definition.AdditionalParameters
+    }
+    $result = Invoke-ExchangeSnapshotCommand @invokeParams
+    $recordKey = if ($definition.ContainsKey('Key')) { [string]$definition.Key } else { $name }
+
+    if ($result.status -eq 'Collected') {
+      if ($result.data.Count -eq 0) { continue }
+
+      $index = 0
+      foreach ($item in $result.data) {
+        $index++
+        $itemId = Get-ExchangeSnapshotItemIdentity -Value $item -Index $index
+        $itemName = Get-GraphPropValue -Obj $item -Name 'DisplayName'
+        if (-not $itemName) { $itemName = Get-GraphPropValue -Obj $item -Name 'Name' }
+        if (-not $itemName) { $itemName = $itemId }
+
+        [void]$records.Add([pscustomobject]@{
+          id               = "$Endpoint/$recordKey/$itemId"
+          displayName      = "$($definition.DisplayName) – $itemName"
+          command          = $name
+          collectionStatus = $result.status
+          collectionReason = $result.reason
+          settings         = $item
+        })
+      }
+      continue
+    }
+
+    [void]$records.Add([pscustomobject]@{
+      id               = "$Endpoint/$recordKey"
+      displayName      = [string]$definition.DisplayName
+      command          = $name
+      collectionStatus = $result.status
+      collectionReason = $result.reason
+      settings         = $result.data
+    })
+  }
+
+  return $records
 }
 
 function Get-IntuneAssignments {
@@ -844,6 +1183,91 @@ function Get-DefenderSecurityPostureSnapshot {
   }
 }
 
+function Get-ExchangeOrganizationSnapshot {
+  Write-Info 'Collecting Exchange Online organization configuration...'
+  $definitions = @(
+    @{ Name = 'Get-OrganizationConfig'; DisplayName = 'Organization configuration' },
+    @{ Name = 'Get-AcceptedDomain'; DisplayName = 'Accepted domains' },
+    @{ Name = 'Get-RemoteDomain'; DisplayName = 'Remote domains' },
+    @{ Name = 'Get-EmailAddressPolicy'; DisplayName = 'Email address policies' },
+    @{ Name = 'Get-FederatedOrganizationIdentifier'; DisplayName = 'Federated organization identifier' },
+    @{ Name = 'Get-FederationTrust'; DisplayName = 'Federation trusts' },
+    @{ Name = 'Get-IntraOrganizationConnector'; DisplayName = 'Intra-organization connectors' },
+    @{ Name = 'Get-OrganizationRelationship'; DisplayName = 'Organization relationships' },
+    @{ Name = 'Get-SharingPolicy'; DisplayName = 'Sharing policies' },
+    @{ Name = 'Get-RoleAssignmentPolicy'; DisplayName = 'Role assignment policies' },
+    @{ Name = 'Get-ManagementScope'; DisplayName = 'Management scopes' }
+  )
+  return Get-ExchangeEndpointSnapshot -Endpoint 'ExchangeOrganization' -Definitions $definitions
+}
+
+function Get-ExchangeMailFlowSnapshot {
+  Write-Info 'Collecting Exchange Online mail flow configuration...'
+  $definitions = @(
+    @{ Name = 'Get-TransportConfig'; DisplayName = 'Global transport configuration' },
+    @{ Name = 'Get-TransportRule'; DisplayName = 'Mail flow rules' },
+    @{ Name = 'Get-InboundConnector'; DisplayName = 'Inbound connectors' },
+    @{ Name = 'Get-OutboundConnector'; DisplayName = 'Outbound connectors' },
+    @{ Name = 'Get-JournalRule'; DisplayName = 'Journaling rules' }
+  )
+  return Get-ExchangeEndpointSnapshot -Endpoint 'ExchangeMailFlow' -Definitions $definitions
+}
+
+function Get-ExchangeClientAccessSnapshot {
+  Write-Info 'Collecting Exchange Online client access configuration...'
+  $definitions = @(
+    @{ Name = 'Get-OwaMailboxPolicy'; DisplayName = 'Outlook on the web mailbox policies' },
+    @{ Name = 'Get-MobileDeviceMailboxPolicy'; DisplayName = 'Mobile device mailbox policies' },
+    @{ Name = 'Get-ActiveSyncOrganizationSettings'; DisplayName = 'ActiveSync organization settings' },
+    @{ Name = 'Get-ActiveSyncDeviceAccessRule'; DisplayName = 'ActiveSync device access rules' },
+    @{ Name = 'Get-AuthenticationPolicy'; DisplayName = 'Authentication policies' }
+  )
+  return Get-ExchangeEndpointSnapshot -Endpoint 'ExchangeClientAccess' -Definitions $definitions
+}
+
+function Get-ExchangeDefenderForOfficeSnapshot {
+  Write-Info 'Collecting Defender for Office 365 policy configuration...'
+  $definitions = @(
+    @{ Name = 'Get-HostedContentFilterPolicy'; DisplayName = 'Anti-spam policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-HostedContentFilterRule'; DisplayName = 'Anti-spam policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-HostedConnectionFilterPolicy'; DisplayName = 'Connection filter policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-HostedOutboundSpamFilterPolicy'; DisplayName = 'Outbound spam policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-HostedOutboundSpamFilterRule'; DisplayName = 'Outbound spam policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-MalwareFilterPolicy'; DisplayName = 'Anti-malware policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-MalwareFilterRule'; DisplayName = 'Anti-malware policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-AntiPhishPolicy'; DisplayName = 'Anti-phishing policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-AntiPhishRule'; DisplayName = 'Anti-phishing policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-SafeAttachmentPolicy'; DisplayName = 'Safe Attachments policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-SafeAttachmentRule'; DisplayName = 'Safe Attachments policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-SafeLinksPolicy'; DisplayName = 'Safe Links policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-SafeLinksRule'; DisplayName = 'Safe Links policy rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-AtpPolicyForO365'; DisplayName = 'Microsoft 365 app protection policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-DkimSigningConfig'; DisplayName = 'DKIM signing configuration'; CapabilityOptional = $true },
+    @{ Name = 'Get-QuarantinePolicy'; DisplayName = 'Quarantine policies'; CapabilityOptional = $true },
+    @{ Name = 'Get-EOPProtectionPolicyRule'; DisplayName = 'Preset security policy EOP protection rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-ATPProtectionPolicyRule'; DisplayName = 'Preset security policy Defender protection rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-ATPBuiltInProtectionRule'; DisplayName = 'Built-in protection rule'; CapabilityOptional = $true },
+    @{ Name = 'Get-ReportSubmissionPolicy'; DisplayName = 'User report submission policy'; CapabilityOptional = $true },
+    @{ Name = 'Get-ReportSubmissionRule'; DisplayName = 'User report submission rule'; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListSpoofItems'; DisplayName = 'Tenant Allow/Block List spoof entries'; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-Sender'; DisplayName = 'Tenant Allow/Block List sender entries with expiration'; AdditionalParameters = @{ ListType = 'Sender' }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-Sender-NoExpiration'; DisplayName = 'Tenant Allow/Block List permanent sender entries'; AdditionalParameters = @{ ListType = 'Sender'; NoExpiration = $true }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-Url'; DisplayName = 'Tenant Allow/Block List URL entries with expiration'; AdditionalParameters = @{ ListType = 'Url' }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-Url-NoExpiration'; DisplayName = 'Tenant Allow/Block List permanent URL entries'; AdditionalParameters = @{ ListType = 'Url'; NoExpiration = $true }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-FileHash'; DisplayName = 'Tenant Allow/Block List file hash entries with expiration'; AdditionalParameters = @{ ListType = 'FileHash' }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-FileHash-NoExpiration'; DisplayName = 'Tenant Allow/Block List permanent file hash entries'; AdditionalParameters = @{ ListType = 'FileHash'; NoExpiration = $true }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-IP'; DisplayName = 'Tenant Allow/Block List IP entries with expiration'; AdditionalParameters = @{ ListType = 'IP' }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-IP-NoExpiration'; DisplayName = 'Tenant Allow/Block List permanent IP entries'; AdditionalParameters = @{ ListType = 'IP'; NoExpiration = $true }; CapabilityOptional = $true },
+    @{ Name = 'Get-SecOpsOverridePolicy'; DisplayName = 'Advanced Delivery SecOps override policy'; CapabilityOptional = $true },
+    @{ Name = 'Get-ExoSecOpsOverrideRule'; DisplayName = 'Advanced Delivery SecOps override rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-PhishSimOverridePolicy'; DisplayName = 'Advanced Delivery phishing simulation override policy'; CapabilityOptional = $true },
+    @{ Name = 'Get-ExoPhishSimOverrideRule'; DisplayName = 'Advanced Delivery phishing simulation override rules'; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-AdvancedDelivery-Url'; DisplayName = 'Advanced Delivery phishing simulation URL entries with expiration'; AdditionalParameters = @{ ListType = 'Url'; ListSubType = 'AdvancedDelivery' }; CapabilityOptional = $true },
+    @{ Name = 'Get-TenantAllowBlockListItems'; Key = 'Get-TenantAllowBlockListItems-AdvancedDelivery-Url-NoExpiration'; DisplayName = 'Advanced Delivery permanent phishing simulation URL entries'; AdditionalParameters = @{ ListType = 'Url'; ListSubType = 'AdvancedDelivery'; NoExpiration = $true }; CapabilityOptional = $true }
+  )
+  return Get-ExchangeEndpointSnapshot -Endpoint 'ExchangeDefenderForOffice' -Definitions $definitions
+}
+
 # Endpoint dispatch table
 $script:Collectors = [ordered]@{
   EntraCA              = { Get-EntraCASnapshot }
@@ -863,6 +1287,10 @@ $script:Collectors = [ordered]@{
   M365GroupGovernance         = { Get-M365GroupGovernanceSnapshot }
   TeamsTenantPolicies         = { Get-TeamsTenantPoliciesSnapshot }
   DefenderSecurityPosture     = { Get-DefenderSecurityPostureSnapshot }
+  ExchangeOrganization         = { Get-ExchangeOrganizationSnapshot }
+  ExchangeMailFlow             = { Get-ExchangeMailFlowSnapshot }
+  ExchangeClientAccess         = { Get-ExchangeClientAccessSnapshot }
+  ExchangeDefenderForOffice    = { Get-ExchangeDefenderForOfficeSnapshot }
 }
 
 # ─── Snapshot Orchestrator ───────────────────────────────────────────────────
@@ -875,6 +1303,7 @@ function Invoke-Snapshot {
 
   $combined = [ordered]@{}
   $summary  = [System.Collections.Generic.List[pscustomobject]]::new()
+  $script:LastSnapshotEndpointStatus = @{}
 
   foreach ($ep in $SelectedEndpoints) {
     $label = $script:EndpointLabels[$ep]
@@ -890,7 +1319,17 @@ function Invoke-Snapshot {
       $itemCount = if ($data -is [System.Collections.IList]) { $data.Count } elseif ($data -is [array]) { $data.Count } elseif ($null -ne $data) { 1 } else { 0 }
       $fileName  = "$ep.json"
       Write-JsonFile -Object $data -Path (Join-Path $RunFolder $fileName)
-      Write-Ok "$label – $itemCount item(s) collected"
+      $skippedComponents = @(
+        $data | Where-Object {
+          (Get-GraphPropValue -Obj $_ -Name 'collectionStatus') -eq 'Skipped'
+        }
+      )
+      if ($skippedComponents.Count -gt 0) {
+        $status = "INCOMPLETE: $($skippedComponents.Count) component(s) unavailable"
+        Write-Warn "$label – $itemCount item(s) collected, but $($skippedComponents.Count) component(s) were unavailable."
+      } else {
+        Write-Ok "$label – $itemCount item(s) collected"
+      }
     } catch {
       $status = "ERROR: $_"
       Write-Fail "$label – $($_.Exception.Message)"
@@ -903,6 +1342,7 @@ function Invoke-Snapshot {
       Status    = $status
     })
 
+    $script:LastSnapshotEndpointStatus[$ep] = $status
     $combined[$ep] = $data
   }
 
@@ -913,8 +1353,8 @@ function Invoke-Snapshot {
   Write-Out ''
   Write-Out '  ── Snapshot Summary ────────────────────────────────────────────' -Color Cyan
   foreach ($row in $summary) {
-    $statusIcon = if ($row.Status -eq 'OK') { '✓' } else { '✗' }
-    $color      = if ($row.Status -eq 'OK') { 'Green' } else { 'Red' }
+    $statusIcon = if ($row.Status -eq 'OK') { '✓' } elseif ($row.Status -like 'INCOMPLETE:*') { '⚠' } else { '✗' }
+    $color      = if ($row.Status -eq 'OK') { 'Green' } elseif ($row.Status -like 'INCOMPLETE:*') { 'DarkYellow' } else { 'Red' }
     Write-Out ("  {0,-2} {1,-40} {2,5} item(s)  [{3}]" -f $statusIcon, $row.Label, $row.ItemCount, $row.Status) -Color $color
   }
   Write-Out ''
@@ -1119,17 +1559,55 @@ function New-DriftRow {
   }
 }
 
+function Test-IsExchangeComparableSnapshotItem {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)]$Item,
+    [string[]]$SkippedCommandIds = @()
+  )
+
+  $id = [string](Get-GraphPropValue -Obj $Item -Name 'id')
+  if ((Get-GraphPropValue -Obj $Item -Name 'collectionStatus') -eq 'Skipped') {
+    return $false
+  }
+  foreach ($skippedCommandId in $SkippedCommandIds) {
+    if ($id -eq $skippedCommandId -or $id.StartsWith("$skippedCommandId/")) {
+      return $false
+    }
+  }
+
+  # Version 1.4 emitted a command-level record only when its result was empty.
+  # Ignore that legacy placeholder so it does not appear as drift after v1.5.
+  $status = Get-GraphPropValue -Obj $Item -Name 'collectionStatus'
+  $settings = Get-GraphPropValue -Obj $Item -Name 'settings'
+  $isEmpty = $null -eq $settings -or (
+    $settings -is [System.Collections.ICollection] -and $settings.Count -eq 0
+  )
+  return -not ($status -eq 'Collected' -and $id -match '^Exchange[^/]+/[^/]+$' -and $isEmpty)
+}
+
 function Compare-Snapshots {
   param(
     [Parameter(Mandatory)][hashtable]$Baseline,
     [Parameter(Mandatory)][hashtable]$Current,
     [Parameter(Mandatory)][string[]]$SelectedEndpoints,
-    [hashtable]$AuditLookup = @{}
+    [hashtable]$AuditLookup = @{},
+    [hashtable]$CurrentCollectionStatus = @{},
+    [string[]]$MissingBaselineEndpoints = @()
   )
 
   $rows = [System.Collections.Generic.List[pscustomobject]]::new()
 
   foreach ($ep in $SelectedEndpoints) {
+    if ($ep -in $MissingBaselineEndpoints) {
+      Write-Warn "Skipping drift comparison for $($script:EndpointLabels[$ep]): the baseline does not contain this endpoint."
+      continue
+    }
+    if ($CurrentCollectionStatus.ContainsKey($ep) -and $CurrentCollectionStatus[$ep] -ne 'OK') {
+      Write-Warn "Skipping drift comparison for $($script:EndpointLabels[$ep]): current collection is incomplete or failed."
+      continue
+    }
+
     $baseItems    = $Baseline[$ep]
     $currentItems = $Current[$ep]
 
@@ -1143,6 +1621,19 @@ function Compare-Snapshots {
     }
     if ($currentItems -isnot [array] -and $currentItems -isnot [System.Collections.IList]) {
       $currentItems = @($currentItems)
+    }
+    if ($ep -in $script:ExchangeEndpoints) {
+      $skippedCommandIds = @(
+        @($baseItems + $currentItems) |
+          Where-Object { (Get-GraphPropValue -Obj $_ -Name 'collectionStatus') -eq 'Skipped' } |
+          ForEach-Object { [string](Get-GraphPropValue -Obj $_ -Name 'id') }
+      )
+      $baseItems = @($baseItems | Where-Object {
+        Test-IsExchangeComparableSnapshotItem -Item $_ -SkippedCommandIds $skippedCommandIds
+      })
+      $currentItems = @($currentItems | Where-Object {
+        Test-IsExchangeComparableSnapshotItem -Item $_ -SkippedCommandIds $skippedCommandIds
+      })
     }
 
     # Build id-keyed dictionaries
@@ -1242,8 +1733,44 @@ function Export-DriftReport {
   param(
     [System.Collections.Generic.List[pscustomobject]]$Rows,
     [Parameter(Mandatory)][string]$RunFolder,
-    [Parameter(Mandatory)][string[]]$SelectedEndpoints
+    [Parameter(Mandatory)][string[]]$SelectedEndpoints,
+    [hashtable]$CurrentCollectionStatus = @{},
+    [string[]]$MissingBaselineEndpoints = @()
   )
+
+  $failedEndpoints = @(
+    $CurrentCollectionStatus.GetEnumerator() |
+      Where-Object { $_.Value -ne 'OK' }
+  )
+  if ($failedEndpoints.Count -gt 0 -or $MissingBaselineEndpoints.Count -gt 0) {
+    $reportRows = [System.Collections.Generic.List[pscustomobject]]::new()
+    if ($Rows) {
+      foreach ($row in $Rows) { [void]$reportRows.Add($row) }
+    }
+    foreach ($failure in $failedEndpoints) {
+      $changeType = if ($failure.Value -like 'INCOMPLETE:*') { 'CollectionIncomplete' } else { 'CollectionFailed' }
+      [void]$reportRows.Add((New-DriftRow -Endpoint $failure.Key -ChangeType $changeType `
+        -ResourceId "$($failure.Key)/Collection" `
+        -ResourceName $script:EndpointLabels[$failure.Key] `
+        -ChangedProperties 'Collection incomplete or failed' -BaselineValue '' -CurrentValue ([string]$failure.Value)
+      ))
+    }
+    foreach ($endpoint in $MissingBaselineEndpoints) {
+      [void]$reportRows.Add((New-DriftRow -Endpoint $endpoint -ChangeType 'BaselineMissing' `
+        -ResourceId "$endpoint/Baseline" `
+        -ResourceName $script:EndpointLabels[$endpoint] `
+        -ChangedProperties 'Baseline endpoint missing' -BaselineValue '' `
+        -CurrentValue 'Create a new baseline that includes this endpoint.'
+      ))
+    }
+    Write-JsonFile -Object $reportRows -Path (Join-Path $RunFolder 'DriftReport.json')
+    Export-CsvUtf8 -Object $reportRows -Path (Join-Path $RunFolder 'DriftReport.csv')
+    $inconclusiveReasons = @()
+    if ($failedEndpoints.Count -gt 0) { $inconclusiveReasons += "collection incomplete or failed for $($failedEndpoints.Key -join ', ')" }
+    if ($MissingBaselineEndpoints.Count -gt 0) { $inconclusiveReasons += "baseline missing $($MissingBaselineEndpoints -join ', ')" }
+    Write-Warn "Drift check is inconclusive: $($inconclusiveReasons -join '; '). See DriftReport.csv / DriftReport.json."
+    return
+  }
 
   if ($null -eq $Rows -or $Rows.Count -eq 0) {
     Write-Ok 'No drift detected – current state matches the baseline.'
@@ -1406,7 +1933,7 @@ function Select-Endpoints {
   $userSelection = Read-Host '  Endpoints [default: all supported by the selected authentication method]'
   if ([string]::IsNullOrWhiteSpace($userSelection)) {
     if ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials') {
-      return @($script:AllEndpoints | Where-Object { $_ -notin $script:InteractiveOnlyEndpoints })
+      return @($script:AllEndpoints | Where-Object { $_ -notin $script:DelegatedOnlyEndpoints })
     }
     return $script:AllEndpoints
   }
@@ -1422,6 +1949,21 @@ function Select-Endpoints {
   }
   if ($selected.Count -eq 0) { return $script:AllEndpoints }
   return $selected
+}
+
+function Close-DriftConnections {
+  if ($transcriptStarted) {
+    try { Stop-Transcript | Out-Null } catch { Write-Warn "Could not stop transcript: $_" }
+  }
+  if ($script:GraphConnected) {
+    try { Disconnect-MgGraph | Out-Null } catch { Write-Warn "Could not disconnect Microsoft Graph: $_" }
+  }
+  if ($script:TeamsConnected) {
+    try { Disconnect-MicrosoftTeams | Out-Null } catch { Write-Warn "Could not disconnect Microsoft Teams: $_" }
+  }
+  if ($script:ExchangeConnected) {
+    try { Disconnect-ExchangeOnline -ConnectionId $script:ExchangeConnectionId -Confirm:$false | Out-Null } catch { Write-Warn "Could not disconnect Exchange Online: $_" }
+  }
 }
 
 # ─── Main Flow ───────────────────────────────────────────────────────────────
@@ -1445,7 +1987,8 @@ try {
   $transcriptStarted = $true
 } catch { Write-Warn "Could not start transcript: $_" }
 
-Write-Info "Run folder: $runFolder"
+try {
+  Write-Info "Run folder: $runFolder"
 
 # Resolve mode
 if (-not $Mode) {
@@ -1458,14 +2001,15 @@ if (-not $Mode) {
 }
 if ($Mode -eq 'Exit') {
   Write-Info 'Exiting.'
-  if ($transcriptStarted) { Stop-Transcript | Out-Null }
   return
 }
 
 # Resolve endpoints
 if (-not $Endpoints -or $Endpoints.Count -eq 0) {
   if ($Unattended) {
-    $Endpoints = $script:AllEndpoints
+    $Endpoints = @($script:AllEndpoints | Where-Object {
+      -not (($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials') -and $_ -in $script:DelegatedOnlyEndpoints)
+    })
     Write-Info "No -Endpoints specified – defaulting to all $($Endpoints.Count) endpoints."
   } else {
     $Endpoints = Select-Endpoints
@@ -1476,9 +2020,9 @@ $invalid = $Endpoints | Where-Object { $_ -notin $script:AllEndpoints }
 if ($invalid) {
   throw "Invalid endpoint name(s): $($invalid -join ', '). Valid: $($script:AllEndpoints -join ', ')"
 }
-$interactiveOnlySelection = @($Endpoints | Where-Object { $_ -in $script:InteractiveOnlyEndpoints })
-if ($interactiveOnlySelection.Count -gt 0 -and ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials')) {
-  throw "Endpoint(s) $($interactiveOnlySelection -join ', ') require delegated Interactive or DeviceCode authentication. Remove these endpoints or change -AuthMethod."
+$delegatedOnlySelection = @($Endpoints | Where-Object { $_ -in $script:DelegatedOnlyEndpoints })
+if ($delegatedOnlySelection.Count -gt 0 -and ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials')) {
+  throw "Endpoint(s) $($delegatedOnlySelection -join ', ') require delegated Interactive or DeviceCode authentication. Remove these endpoints or change -AuthMethod."
 }
 
 # ── Module loading ────────────────────────────────────────────────────────────
@@ -1486,6 +2030,9 @@ if ($interactiveOnlySelection.Count -gt 0 -and ($script:IsRunbook -or $AuthMetho
 Ensure-Module -Name 'Microsoft.Graph.Authentication'
 if ($Endpoints -contains 'TeamsTenantPolicies') {
   Ensure-Module -Name 'MicrosoftTeams'
+}
+if (@($Endpoints | Where-Object { $_ -in $script:ExchangeEndpoints }).Count -gt 0) {
+  Ensure-ExchangeOnlineManagementModule
 }
 
 $storageCtx = $null
@@ -1525,6 +2072,8 @@ try {
     Connect-MgGraph @mgParams
   }
   $ctx = Get-MgContext
+  $script:GraphConnected = $true
+  $script:GraphTenantId = [string]$ctx.TenantId
   Write-Ok "Connected to Microsoft Graph as: $($ctx.Account ?? 'Managed Identity') (tenant: $($ctx.TenantId))"
 } catch {
   throw "Graph authentication failed: $_"
@@ -1579,11 +2128,6 @@ if ($Mode -eq 'ListBaselines') {
   }
   Write-Out ''
 
-  if ($transcriptStarted) { Stop-Transcript | Out-Null }
-  try { Disconnect-MgGraph | Out-Null } catch {}
-  if ($script:TeamsConnected) {
-    try { Disconnect-MicrosoftTeams | Out-Null } catch {}
-  }
   return
 }
 
@@ -1598,6 +2142,10 @@ Write-Ok "Snapshot written to $runFolder"
 # ── SetBaseline ───────────────────────────────────────────────────────────────
 
 if ($Mode -eq 'SetBaseline') {
+  $failedEndpoints = @($script:LastSnapshotEndpointStatus.GetEnumerator() | Where-Object { $_.Value -ne 'OK' })
+  if ($failedEndpoints.Count -gt 0) {
+    throw "Cannot save a baseline because collection failed for: $($failedEndpoints.Key -join ', '). Resolve the errors and run SetBaseline again."
+  }
   if (-not $BaselineName) {
     if ($Unattended) { throw '-BaselineName is required for SetBaseline mode.' }
     $BaselineName       = Read-Host '  Baseline name'
@@ -1660,8 +2208,9 @@ if ($Mode -eq 'CheckDrift') {
     Write-Step 'Fetching audit data for change attribution...'
     try { $auditLookup = Get-AuditActorLookup } catch { Write-Warn "Audit lookup failed – ModifiedBy will be empty: $_" }
   }
-  $driftRows = Compare-Snapshots -Baseline $baselineSnapshot -Current $currentSnapshot -SelectedEndpoints $Endpoints -AuditLookup $auditLookup
-  Export-DriftReport -Rows $driftRows -RunFolder $runFolder -SelectedEndpoints $Endpoints
+  $missingBaselineEndpoints = @($Endpoints | Where-Object { -not $baselineSnapshot.ContainsKey($_) })
+  $driftRows = Compare-Snapshots -Baseline $baselineSnapshot -Current $currentSnapshot -SelectedEndpoints $Endpoints -AuditLookup $auditLookup -CurrentCollectionStatus $script:LastSnapshotEndpointStatus -MissingBaselineEndpoints $missingBaselineEndpoints
+  Export-DriftReport -Rows $driftRows -RunFolder $runFolder -SelectedEndpoints $Endpoints -CurrentCollectionStatus $script:LastSnapshotEndpointStatus -MissingBaselineEndpoints $missingBaselineEndpoints
 }
 
 # ── Upload run to Blob ─────────────────────────────────────────────────────────
@@ -1681,5 +2230,6 @@ if ($UploadToBlob -and $storageCtx) {
 }
 Write-Out ''
 
-if ($transcriptStarted) { Stop-Transcript | Out-Null }
-try { Disconnect-MgGraph | Out-Null } catch {}
+} finally {
+  Close-DriftConnections
+}
