@@ -133,7 +133,16 @@ param(
 
   # When specified with CheckDrift, fetches Intune and Entra audit logs to populate
   # the ModifiedBy field in drift rows. Requires AuditLog.Read.All consent.
-  [switch]$IncludeAuditData
+  [switch]$IncludeAuditData,
+
+  # Internal use only. Prevents Exchange collection child processes from spawning
+  # another child process.
+  [switch]$IsolatedExchangeProcess,
+
+  # Internal use only. JSON-serialized Exchange endpoint names for the child
+  # PowerShell process, where command-line argument binding cannot preserve an
+  # array parameter.
+  [string]$IsolatedExchangeEndpointsJson
 )
 
 Set-StrictMode -Version Latest
@@ -141,7 +150,7 @@ $ErrorActionPreference = 'Stop'
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-$script:ToolVersion = '1.6'
+$script:ToolVersion = '1.7'
 $script:ToolName    = 'Azure Config Drift'
 
 $script:AllEndpoints = @(
@@ -295,13 +304,18 @@ function Ensure-ExchangeOnlineManagementModule {
     throw "Exchange endpoints require PowerShell 7.4 or later. Current version: $($PSVersionTable.PSVersion)."
   }
 
-  $minimumCurrentVersion = [version]'7.6.0'
-  if ($PSVersionTable.PSVersion -ge $minimumCurrentVersion) {
-    Ensure-Module -Name 'ExchangeOnlineManagement'
+  # Exchange collection normally runs in an isolated child process because
+  # Exchange, Microsoft Graph, and Microsoft Teams ship incompatible MSAL
+  # versions. This version is loaded only in that clean child process.
+  $compatibleVersion = [version]'3.9.2'
+  $loadedModule = Get-Module -Name 'ExchangeOnlineManagement'
+  if ($loadedModule -and $loadedModule.Version -eq $compatibleVersion) {
     return
   }
+  if ($loadedModule -and $loadedModule.Version -ne $compatibleVersion) {
+    throw "ExchangeOnlineManagement $($loadedModule.Version) is already loaded in this PowerShell session. Start a new PowerShell session and run the tool again; it requires ExchangeOnlineManagement $compatibleVersion to avoid an MSAL assembly conflict."
+  }
 
-  $compatibleVersion = [version]'3.9.2'
   $module = Get-Module -ListAvailable -Name 'ExchangeOnlineManagement' |
     Where-Object { $_.Version -eq $compatibleVersion } |
     Select-Object -First 1
@@ -315,7 +329,41 @@ function Ensure-ExchangeOnlineManagementModule {
   if (-not $module) {
     throw "ExchangeOnlineManagement $compatibleVersion could not be installed for PowerShell $($PSVersionTable.PSVersion). Upgrade to PowerShell 7.6 or install the compatible module version manually."
   }
+  Assert-CompatibleExchangeAssemblyState -CompatibleModuleBase $module.ModuleBase
   Import-Module -Name $module.Path -Force -ErrorAction Stop
+}
+
+function Assert-CompatibleExchangeAssemblyState {
+  <#
+  .SYNOPSIS
+    Stops execution when an incompatible Exchange client assembly is already loaded.
+
+  .DESCRIPTION
+    .NET assemblies cannot be unloaded by Remove-Module. A previously loaded
+    Exchange REST client can make Microsoft Graph authentication fail with a
+    misleading Microsoft.Identity.Client method-not-found error. The client
+    assembly from the required ExchangeOnlineManagement version is safe.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string]$CompatibleModuleBase)
+
+  $exchangeAssembly = [AppDomain]::CurrentDomain.GetAssemblies() |
+    Where-Object { $_.GetName().Name -eq 'Microsoft.Exchange.Management.RestApiClient' } |
+    Select-Object -First 1
+  if (-not $exchangeAssembly) { return }
+
+  $assemblyPath = $exchangeAssembly.Location
+  $compatibleAssemblyPath = Join-Path $CompatibleModuleBase 'netCore/Microsoft.Exchange.Management.RestApiClient.dll'
+  if ($assemblyPath -and ([string]::Equals(
+    [IO.Path]::GetFullPath($assemblyPath),
+    [IO.Path]::GetFullPath($compatibleAssemblyPath),
+    [StringComparison]::OrdinalIgnoreCase
+  ))) {
+    return
+  }
+
+  $reportedAssemblyPath = if ($assemblyPath) { $assemblyPath } else { 'an unknown location' }
+  throw "An incompatible Exchange REST API client assembly is already loaded from '$reportedAssemblyPath'. Close this PowerShell terminal (or restart VS Code), open a new terminal, and run the tool again. Remove-Module cannot unload .NET assemblies."
 }
 
 # ─── Graph Helpers ───────────────────────────────────────────────────────────
@@ -488,7 +536,9 @@ function Connect-ExchangeForSnapshot {
   }
 
   $script:ExchangeConnectionId = [string]$newConnections[0].ConnectionId
-  if (-not $script:GraphTenantId -or [string]$newConnections[0].TenantID -ne $script:GraphTenantId) {
+  if ($script:GraphConnected -and (
+    -not $script:GraphTenantId -or [string]$newConnections[0].TenantID -ne $script:GraphTenantId
+  )) {
     try {
       Disconnect-ExchangeOnline -ConnectionId $script:ExchangeConnectionId -Confirm:$false | Out-Null
     } catch {
@@ -1295,6 +1345,56 @@ $script:Collectors = [ordered]@{
 
 # ─── Snapshot Orchestrator ───────────────────────────────────────────────────
 
+function Invoke-IsolatedExchangeSnapshot {
+  <#
+  .SYNOPSIS
+    Collects Exchange endpoints in a fresh PowerShell process.
+
+  .DESCRIPTION
+    Exchange Online, Microsoft Graph, and Microsoft Teams currently ship
+    incompatible Microsoft.Identity.Client assembly versions. .NET cannot
+    unload or side-load the conflicting assemblies in one PowerShell process.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string[]]$SelectedEndpoints,
+    [Parameter(Mandatory)][string]$RunFolder
+  )
+
+  $childOutputPath = Join-Path $RunFolder 'ExchangeIsolated'
+  Ensure-Folder -Path $childOutputPath
+  $childArguments = @(
+    '-NoProfile', '-File', $PSCommandPath,
+    '-Mode', 'Snapshot',
+    '-OutputPath', $childOutputPath,
+    '-AuthMethod', $AuthMethod,
+    '-Unattended',
+    '-IsolatedExchangeProcess',
+    '-IsolatedExchangeEndpointsJson', ($SelectedEndpoints | ConvertTo-Json -Compress)
+  )
+  if ($TenantId) { $childArguments += @('-TenantId', $TenantId) }
+
+  Write-Step 'Starting isolated Exchange Online collection process...'
+  $childOutput = @(& pwsh @childArguments)
+  if ($LASTEXITCODE -ne 0) {
+    $details = @($childOutput | Select-Object -Last 10) -join [Environment]::NewLine
+    throw "The isolated Exchange Online collection process failed with exit code $LASTEXITCODE. Details: $details"
+  }
+
+  $childRun = Get-ChildItem -Path $childOutputPath -Directory -Filter 'Run-*' |
+    Sort-Object -Property CreationTimeUtc -Descending |
+    Select-Object -First 1
+  if (-not $childRun) {
+    throw 'The isolated Exchange Online collection process did not create a run folder.'
+  }
+
+  $childSnapshotPath = Join-Path $childRun.FullName 'Snapshot.json'
+  if (-not (Test-Path $childSnapshotPath)) {
+    throw 'The isolated Exchange Online collection process did not create Snapshot.json.'
+  }
+  return ,(Get-Content -Path $childSnapshotPath -Raw | ConvertFrom-Json -AsHashtable)
+}
+
 function Invoke-Snapshot {
   param(
     [Parameter(Mandatory)][string[]]$SelectedEndpoints,
@@ -1305,7 +1405,46 @@ function Invoke-Snapshot {
   $summary  = [System.Collections.Generic.List[pscustomobject]]::new()
   $script:LastSnapshotEndpointStatus = @{}
 
+  $exchangeEndpoints = @($SelectedEndpoints | Where-Object { $_ -in $script:ExchangeEndpoints })
+  if ($exchangeEndpoints.Count -gt 0 -and -not $IsolatedExchangeProcess) {
+    try {
+      $isolatedSnapshot = Invoke-IsolatedExchangeSnapshot -SelectedEndpoints $exchangeEndpoints -RunFolder $RunFolder
+      foreach ($ep in $exchangeEndpoints) {
+        if (-not $isolatedSnapshot.ContainsKey($ep)) {
+          throw "The isolated Exchange Online collection did not return endpoint '$ep'."
+        }
+        $data = $isolatedSnapshot[$ep]
+        if ($null -eq $data) { $data = @() }
+        $itemCount = if ($data -is [System.Collections.IList] -or $data -is [array]) { $data.Count } else { 1 }
+        Write-JsonFile -Object $data -Path (Join-Path $RunFolder "$ep.json")
+        $combined[$ep] = $data
+        $script:LastSnapshotEndpointStatus[$ep] = 'OK'
+        [void]$summary.Add([pscustomobject]@{
+          Endpoint  = $ep
+          Label     = $script:EndpointLabels[$ep]
+          ItemCount = $itemCount
+          Status    = 'OK'
+        })
+        Write-Ok "$($script:EndpointLabels[$ep]) – $itemCount item(s) collected in isolated process"
+      }
+    } catch {
+      foreach ($ep in $exchangeEndpoints) {
+        $status = "ERROR: $($_.Exception.Message)"
+        $combined[$ep] = @()
+        $script:LastSnapshotEndpointStatus[$ep] = $status
+        [void]$summary.Add([pscustomobject]@{
+          Endpoint  = $ep
+          Label     = $script:EndpointLabels[$ep]
+          ItemCount = 0
+          Status    = $status
+        })
+        Write-Fail "$($script:EndpointLabels[$ep]) – $($_.Exception.Message)"
+      }
+    }
+  }
+
   foreach ($ep in $SelectedEndpoints) {
+    if ($ep -in $exchangeEndpoints -and -not $IsolatedExchangeProcess) { continue }
     $label = $script:EndpointLabels[$ep]
     Write-Step "Collecting $label..."
     $status    = 'OK'
@@ -1990,6 +2129,14 @@ try {
 try {
   Write-Info "Run folder: $runFolder"
 
+if ($IsolatedExchangeEndpointsJson) {
+  try {
+    $Endpoints = @($IsolatedExchangeEndpointsJson | ConvertFrom-Json)
+  } catch {
+    throw "Could not parse the isolated Exchange endpoint list: $_"
+  }
+}
+
 # Resolve mode
 if (-not $Mode) {
   if ($Unattended) {
@@ -2024,14 +2171,19 @@ $delegatedOnlySelection = @($Endpoints | Where-Object { $_ -in $script:Delegated
 if ($delegatedOnlySelection.Count -gt 0 -and ($script:IsRunbook -or $AuthMethod -eq 'ClientCredentials')) {
   throw "Endpoint(s) $($delegatedOnlySelection -join ', ') require delegated Interactive or DeviceCode authentication. Remove these endpoints or change -AuthMethod."
 }
+$requiresGraphConnection = $IncludeAuditData -or @($Endpoints | Where-Object {
+  $_ -notin $script:ExchangeEndpoints -and $_ -ne 'TeamsTenantPolicies'
+}).Count -gt 0
 
 # ── Module loading ────────────────────────────────────────────────────────────
 
-Ensure-Module -Name 'Microsoft.Graph.Authentication'
+if ($requiresGraphConnection) {
+  Ensure-Module -Name 'Microsoft.Graph.Authentication'
+}
 if ($Endpoints -contains 'TeamsTenantPolicies') {
   Ensure-Module -Name 'MicrosoftTeams'
 }
-if (@($Endpoints | Where-Object { $_ -in $script:ExchangeEndpoints }).Count -gt 0) {
+if ($IsolatedExchangeProcess -and @($Endpoints | Where-Object { $_ -in $script:ExchangeEndpoints }).Count -gt 0) {
   Ensure-ExchangeOnlineManagementModule
 }
 
@@ -2043,40 +2195,42 @@ if ($UploadToBlob -or ($AuthMethod -eq 'ClientCredentials' -and $StorageAccountN
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-Write-Step 'Authenticating to Microsoft Graph...'
-try {
-  $effectiveScopes = if ($IncludeAuditData) { $script:RequiredScopes + 'AuditLog.Read.All' } else { $script:RequiredScopes }
-  if ($script:IsRunbook) {
-    # ── Managed Identity (Azure Automation Runbook) ───────────────────────────
-    $mgParams = @{ Identity = $true; NoWelcome = $true }
-    if ($ManagedIdentityClientId) { $mgParams['ClientId'] = $ManagedIdentityClientId }
-    if ($TenantId)                { $mgParams['TenantId'] = $TenantId }
-    Connect-MgGraph @mgParams
-  } elseif ($AuthMethod -eq 'ClientCredentials') {
-    # ── Enterprise Application – app-only, client secret ─────────────────────
-    if (-not $TenantId)     { throw '-TenantId is required when -AuthMethod ClientCredentials is used.' }
-    if (-not $ClientId)     { throw '-ClientId is required when -AuthMethod ClientCredentials is used.' }
-    if (-not $ClientSecret) { throw '-ClientSecret is required when -AuthMethod ClientCredentials is used.' }
-    $appCred = New-Object System.Management.Automation.PSCredential($ClientId, $ClientSecret)
-    Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -ClientSecretCredential $appCred -NoWelcome
-  } elseif ($AuthMethod -eq 'DeviceCode') {
-    # ── Device code – user auth, no browser required ──────────────────────────
-    Write-Info 'Device code authentication: open https://aka.ms/devicelogin and enter the code shown below.'
-    $mgParams = @{ Scopes = $effectiveScopes; UseDeviceAuthentication = $true; NoWelcome = $true }
-    if ($TenantId) { $mgParams['TenantId'] = $TenantId }
-    Connect-MgGraph @mgParams
-  } else {
-    # ── Interactive browser – user auth (default for local runs) ──────────────
-    $mgParams = @{ Scopes = $effectiveScopes; NoWelcome = $true }
-    if ($TenantId) { $mgParams['TenantId'] = $TenantId }
-    Connect-MgGraph @mgParams
+if ($requiresGraphConnection) {
+  Write-Step 'Authenticating to Microsoft Graph...'
+  try {
+    $effectiveScopes = if ($IncludeAuditData) { $script:RequiredScopes + 'AuditLog.Read.All' } else { $script:RequiredScopes }
+    if ($script:IsRunbook) {
+      # ── Managed Identity (Azure Automation Runbook) ─────────────────────────
+      $mgParams = @{ Identity = $true; NoWelcome = $true }
+      if ($ManagedIdentityClientId) { $mgParams['ClientId'] = $ManagedIdentityClientId }
+      if ($TenantId)                { $mgParams['TenantId'] = $TenantId }
+      Connect-MgGraph @mgParams
+    } elseif ($AuthMethod -eq 'ClientCredentials') {
+      # ── Enterprise Application – app-only, client secret ───────────────────
+      if (-not $TenantId)     { throw '-TenantId is required when -AuthMethod ClientCredentials is used.' }
+      if (-not $ClientId)     { throw '-ClientId is required when -AuthMethod ClientCredentials is used.' }
+      if (-not $ClientSecret) { throw '-ClientSecret is required when -AuthMethod ClientCredentials is used.' }
+      $appCred = New-Object System.Management.Automation.PSCredential($ClientId, $ClientSecret)
+      Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -ClientSecretCredential $appCred -NoWelcome
+    } elseif ($AuthMethod -eq 'DeviceCode') {
+      # ── Device code – user auth, no browser required ────────────────────────
+      Write-Info 'Device code authentication: open https://aka.ms/devicelogin and enter the code shown below.'
+      $mgParams = @{ Scopes = $effectiveScopes; UseDeviceAuthentication = $true; NoWelcome = $true }
+      if ($TenantId) { $mgParams['TenantId'] = $TenantId }
+      Connect-MgGraph @mgParams
+    } else {
+      # ── Interactive browser – user auth (default for local runs) ────────────
+      $mgParams = @{ Scopes = $effectiveScopes; NoWelcome = $true }
+      if ($TenantId) { $mgParams['TenantId'] = $TenantId }
+      Connect-MgGraph @mgParams
+    }
+    $ctx = Get-MgContext
+    $script:GraphConnected = $true
+    $script:GraphTenantId = [string]$ctx.TenantId
+    Write-Ok "Connected to Microsoft Graph as: $($ctx.Account ?? 'Managed Identity') (tenant: $($ctx.TenantId))"
+  } catch {
+    throw "Graph authentication failed: $_"
   }
-  $ctx = Get-MgContext
-  $script:GraphConnected = $true
-  $script:GraphTenantId = [string]$ctx.TenantId
-  Write-Ok "Connected to Microsoft Graph as: $($ctx.Account ?? 'Managed Identity') (tenant: $($ctx.TenantId))"
-} catch {
-  throw "Graph authentication failed: $_"
 }
 
 # ── Storage authentication ────────────────────────────────────────────────────
